@@ -11,7 +11,8 @@ The host mounts the component when a mine triggers. Selection is deterministic f
 ## Runtime contract
 
 - `context` supplies `seed`, `floor`, and `cellId`. Treat it as read-only.
-- Call `complete({ outcome: 'success' })` or `complete({ outcome: 'failure' })` when finished.
+- `player` supplies the read-only current and maximum player HP for the encounter HUD.
+- Call `complete({ outcome: 'success' | 'failure', damageTaken })` when finished. `damageTaken` is non-negative overworld-heart damage; fractional values are rounded up by the host and applied once.
 - Call `cancel()` to return without rewards or damage; the triggering cell is hidden again.
 - Only the first valid completion or cancellation is accepted. Calls after unmount are ignored.
 - The host owns health, rewards, persistence, and board transitions. Modules must not mutate them directly.
