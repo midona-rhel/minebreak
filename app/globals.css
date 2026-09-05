@@ -585,6 +585,18 @@ a:focus-visible {
   margin: 0 auto;
   color: #8e6c6f;
 }
+.encounter.encounter-arena {
+  width: min(1000px, calc(100vw - 24px));
+  max-width: 1000px;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  padding: 16px;
+  gap: 10px;
+}
+.encounter.encounter-arena > h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
 .harness-actions {
   display: flex;
   flex-wrap: wrap;

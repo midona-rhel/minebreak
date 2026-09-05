@@ -2,7 +2,7 @@
 
 Minebreak is a browser-based Minesweeper roguelike. This repository provides the shared harness and asset foundation. Developers independently choose, design, and implement their minigames.
 
-The harness currently includes a board, encounter lifecycle, basic run state, and local progress. No finished minigames are bundled. Until a developer registers a module, a mine opens test controls for success, failure, and cancellation.
+The harness includes a board, encounter lifecycle, basic run state, and local progress. Triggering a mine launches Drillants Battle: a spinning-ant arena encounter with customizable weapons, boss fights, survival brawls, and elimination brawls.
 
 ## Direction
 
@@ -21,6 +21,9 @@ npm run dev
 ```
 
 Open the local URL printed by the development server.
+
+Drillants Battle implementation tickets and review notes live in
+[docs/drillantsbattle-tickets.md](docs/drillantsbattle-tickets.md).
 
 ## Collaboration
 

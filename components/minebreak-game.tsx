@@ -25,7 +25,13 @@ import {
 
 import EncounterHost from '@/components/encounter-host';
 import { selectMinigame } from '@/minigames/registry';
-import type { EncounterResult } from '@/minigames/contract';
+import type { EncounterContext, EncounterResult } from '@/minigames/contract';
+import {
+  applyFloorUpgrade,
+  awardRunXP,
+  createEncounterContext,
+  resolveEncounterStats,
+} from '@/lib/player-stats';
 type Cell = {
   id: number;
   mine: boolean;
@@ -122,7 +128,10 @@ export default function MinebreakGame() {
   const [maxHp, setMaxHp] = useState(5);
   const [xp, setXp] = useState(0);
   const [first, setFirst] = useState(true);
-  const [encounter, setEncounter] = useState<{ id: number } | null>(null);
+  const [encounter, setEncounter] = useState<{
+    id: number;
+    context: EncounterContext;
+  } | null>(null);
   const [phase, setPhase] = useState<'board' | 'reward' | 'dead'>('board');
   const [message, setMessage] = useState(
     'Uncover the stone path. Your first step is always safe.',
@@ -175,11 +184,27 @@ export default function MinebreakGame() {
     if (target.mine) {
       target.open = true;
       setCells(next);
-      setEncounter({ id });
+      setEncounter({
+        id,
+        context: createEncounterContext(
+          { seed: seed + floor * 101 + id, floor, cellId: id },
+          {
+            health: hp,
+            maxHealth: maxHp,
+            xp,
+            upgrades: perks,
+            profile: {
+              shards: profile.shards,
+              bestFloor: profile.best,
+              totalDisarmed: profile.disarmed,
+            },
+          },
+        ),
+      });
       setMessage('A portal opens beneath your feet.');
     } else {
       setCells(floodOpen(next, id));
-      setXp((value) => value + 2);
+      setXp((value) => awardRunXP(value, 2));
     }
   };
   const flag = (id: number) => {
@@ -191,34 +216,45 @@ export default function MinebreakGame() {
   const finish = useCallback(
     (result: EncounterResult) => {
       if (!encounter) return;
+      const stats = resolveEncounterStats(
+        { health: hp, maxHealth: maxHp, xp, upgrades: perks },
+        result,
+        35 + floor * 5,
+      );
       setCells((all) =>
         all.map((c) =>
           c.id === encounter.id ? { ...c, open: true, disarmed: true } : c,
         ),
       );
+      setHp(stats.health);
+      setMaxHp(stats.maxHealth);
+      setXp(stats.xp);
+      setPerks({ ...stats.upgrades });
       if (result.outcome === 'success') {
-        setXp((v) => v + 35 + floor * 5);
         save({ ...profile, disarmed: profile.disarmed + 1 });
         setMessage('Encounter completed.');
       } else {
-        const damage = Math.max(1, 2 - perks.armor);
-        const health = hp - damage;
-        setHp(health);
-        setMessage(`Lost ${damage} hearts. Your journey continues.`);
-        if (health <= 0) setPhase('dead');
+        const lostHealth = Math.max(0, hp - stats.health);
+        setMessage(
+          lostHealth
+            ? `Encounter ended. Lost ${lostHealth} hearts.`
+            : 'Encounter ended.',
+        );
       }
+      if (stats.health === 0) setPhase('dead');
       setEncounter(null);
     },
-    [encounter, floor, hp, perks.armor, profile, save],
+    [encounter, floor, hp, maxHp, xp, perks, profile, save],
   );
   const descend = (perk: Perk) => {
+    const stats = applyFloorUpgrade(
+      { health: hp, maxHealth: maxHp, xp, upgrades: perks },
+      perk,
+    );
+    setPerks({ ...stats.upgrades });
+    setMaxHp(stats.maxHealth);
+    setHp(stats.health);
     const nextFloor = floor + 1;
-    setPerks((p) => ({ ...p, [perk]: p[perk] + 1 }));
-    if (perk === 'armor') {
-      setMaxHp((v) => v + 1);
-      setHp((v) => v + 1);
-    }
-    if (perk === 'repair') setHp((v) => Math.min(maxHp, v + 2));
     const nextSeed = Date.now() % 999999;
     setFloor(nextFloor);
     setSeed(nextSeed);
@@ -441,12 +477,8 @@ export default function MinebreakGame() {
       {encounter && (
         <EncounterHost
           key={`${seed}:${floor}:${encounter.id}`}
-          definition={selectMinigame(seed + floor * 101 + encounter.id)}
-          context={{
-            seed: seed + floor * 101 + encounter.id,
-            floor,
-            cellId: encounter.id,
-          }}
+          definition={selectMinigame(encounter.context.seed)}
+          context={encounter.context}
           complete={finish}
           cancel={() => {
             setCells((all) =>
