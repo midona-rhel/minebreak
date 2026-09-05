@@ -1,10 +1,114 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  applyFloorUpgrade,
+  awardRunXP,
   createEncounterContext,
   createPlayerStatsSnapshot,
   resolveEncounterStats,
 } from '../lib/player-stats.ts';
+
+test('capped encounter health survives plating and a subsequent preserve-health failure', () => {
+  const completed = resolveEncounterStats(
+    source(),
+    {
+      outcome: 'success',
+      playerStats: { health: 100, maxHealth: 100 },
+    },
+    40,
+  );
+  const descended = applyFloorUpgrade(completed, 'armor');
+  assert.equal(descended.health, 100);
+  assert.equal(descended.maxHealth, 100);
+  const context = createEncounterContext(
+    { seed: 42, floor: 2, cellId: 3 },
+    {
+      ...descended,
+      profile: source().profile,
+    },
+  );
+  const next = resolveEncounterStats(
+    descended,
+    {
+      outcome: 'failure',
+      playerStats: { health: context.player.health },
+    },
+    45,
+  );
+  assert.equal(next.health, context.player.health);
+});
+
+test('safe-cell XP rewards and subsequent encounter wins never reduce XP at the cap', () => {
+  for (const xp of [999_999_999, 1_000_000_000]) {
+    const completed = resolveEncounterStats(
+      source(),
+      {
+        outcome: 'success',
+        playerStats: { xp },
+      },
+      40,
+    );
+    const revealed = { ...completed, xp: awardRunXP(completed.xp, 2) };
+    assert.equal(revealed.xp, 1_000_000_000);
+    const next = resolveEncounterStats(revealed, { outcome: 'success' }, 40);
+    assert.equal(next.xp, revealed.xp);
+  }
+});
+
+test('all floor upgrade counts stop at the encounter limit and healing respects max health', () => {
+  for (const upgrade of ['armor', 'repair', 'salvage']) {
+    let current = resolveEncounterStats(
+      source(),
+      {
+        outcome: 'success',
+        playerStats: {
+          health: 98,
+          maxHealth: 99,
+          upgrades: { armor: 99, repair: 99, salvage: 99 },
+        },
+      },
+      40,
+    );
+    for (let floor = 0; floor < 3; floor += 1) {
+      current = applyFloorUpgrade(current, upgrade);
+    }
+    assert.equal(current.upgrades[upgrade], 100);
+    assert.equal(current.maxHealth, upgrade === 'armor' ? 100 : 99);
+    assert.equal(
+      current.health,
+      upgrade === 'salvage' ? 98 : current.maxHealth,
+    );
+    const next = resolveEncounterStats(
+      current,
+      {
+        outcome: 'failure',
+        playerStats: current,
+      },
+      40,
+    );
+    assert.deepEqual(next, current);
+  }
+});
+
+test('ordinary board rewards and each floor upgrade retain their effects below the caps', () => {
+  const current = createPlayerStatsSnapshot(source());
+  assert.equal(awardRunXP(current.xp, 2), 142);
+  for (const [upgrade, health, maxHealth] of [
+    ['armor', 4, 7],
+    ['repair', 5, 6],
+    ['salvage', 3, 6],
+  ]) {
+    assert.deepEqual(applyFloorUpgrade(current, upgrade), {
+      health,
+      maxHealth,
+      xp: 140,
+      upgrades: {
+        ...current.upgrades,
+        [upgrade]: current.upgrades[upgrade] + 1,
+      },
+    });
+  }
+});
 
 const source = () => ({
   health: 3,

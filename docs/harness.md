@@ -76,6 +76,7 @@ complete({
 - Omitted or invalid fields keep the normal outcome behavior: success grants the harness reward; failure deals armor-adjusted damage. Other stats stay unchanged.
 - Writable integer ranges: `health` 0–100, `maxHealth` 1–100, `xp` 0–1,000,000,000, and each `upgrades.armor/repair/salvage` 0–100. Strings, fractions, non-finite numbers, out-of-range values, and malformed containers are ignored independently. Zero is valid except for `maxHealth`.
 - Health is clamped to the final maximum. Zero health ends the run even with a successful outcome. Level is always derived from final XP.
+- Board rewards use the same limits: safe-cell and encounter XP stop at 1,000,000,000, floor upgrade counts stop at 100, and Reactive Plating stops increasing maximum health at 100. Plating and Repair can still heal up to the current maximum when their upgrade count is capped.
 - `profile`, `level`, and unknown keys cannot be changed through this API. A success still increments the harness-owned lifetime completion count.
 - `cancel()` discards local changes. Repeated completion/cancellation and callbacks after unmount remain ignored by the host.
 
@@ -83,6 +84,6 @@ complete({
 
 Start with `npm run dev`. Trigger a mine, then exercise success, failure, and cancellation. Confirm the board resumes, rewards/damage apply once, and starting a new run stops the previous module. Run `npm run build` before opening a pull request.
 
-Run `npm run test:player-stats` for snapshots, level boundaries, mutation protection, result overrides, validation, and default-outcome checks.
+Run `npm run test:player-stats` for snapshots, level boundaries, mutation protection, result overrides, validation, and sequences across encounter completion, board XP rewards, and floor upgrades.
 
 Current health/reward values are provisional harness defaults, not minigame design requirements.

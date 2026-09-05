@@ -7,7 +7,7 @@ import { Activity, Flag, Heart, Pickaxe, Radar, RotateCcw, Shield, Skull, Sparkl
 import EncounterHost from '@/components/encounter-host';
 import { minigames, selectMinigame } from '@/minigames/registry';
 import type { EncounterContext, EncounterResult } from '@/minigames/contract';
-import { createEncounterContext, resolveEncounterStats } from '@/lib/player-stats';
+import { applyFloorUpgrade, awardRunXP, createEncounterContext, resolveEncounterStats } from '@/lib/player-stats';
 type Cell = { id: number; mine: boolean; nearby: number; open: boolean; flagged: boolean; disarmed: boolean };
 type Profile = { shards: number; best: number; disarmed: number };
 type Perk = 'armor' | 'repair' | 'salvage';
@@ -155,7 +155,7 @@ export default function MinebreakGame() {
       });
       setMessage('Mine triggered. Hostile signal inbound.');
     }
-    else { setCells(floodOpen(next, id)); setXp((value) => value + 2); }
+    else { setCells(floodOpen(next, id)); setXp((value) => awardRunXP(value, 2)); }
   };
   const flag = (event: React.MouseEvent, id: number) => { event.preventDefault(); if (phase !== 'board' || encounter || cells[id].open) return; setCells((all) => all.map((c) => c.id === id ? { ...c, flagged: !c.flagged } : c)); };
   const finish = useCallback((result: EncounterResult) => {
@@ -180,7 +180,16 @@ export default function MinebreakGame() {
     if (stats.health === 0) setPhase('dead');
     setEncounter(null);
   }, [encounter, floor, hp, maxHp, xp, perks, profile, save]);
-  const descend = (perk: Perk) => { const nextFloor = floor + 1; setPerks((p) => ({ ...p, [perk]: p[perk] + 1 })); if (perk === 'armor') { setMaxHp((v) => v + 1); setHp((v) => v + 1); } if (perk === 'repair') setHp((v) => Math.min(maxHp, v + 2)); const nextSeed = Date.now() % 999999; setFloor(nextFloor); setSeed(nextSeed); setCells(makeBoard(nextFloor, nextSeed)); setFirst(true); setPhase('board'); setMessage(`Descending to sector ${nextFloor}.`); };
+  const descend = (perk: Perk) => {
+    const stats = applyFloorUpgrade({ health: hp, maxHealth: maxHp, xp, upgrades: perks }, perk);
+    setPerks({ ...stats.upgrades });
+    setMaxHp(stats.maxHealth);
+    setHp(stats.health);
+    const nextFloor = floor + 1;
+    const nextSeed = Date.now() % 999999;
+    setFloor(nextFloor); setSeed(nextSeed); setCells(makeBoard(nextFloor, nextSeed));
+    setFirst(true); setPhase('board'); setMessage(`Descending to sector ${nextFloor}.`);
+  };
   const newRun = () => { const nextSeed = Date.now() % 999999; setFloor(1); setSeed(nextSeed); setCells(makeBoard(1, nextSeed)); setHp(5); setMaxHp(5); setXp(0); setFirst(true); setEncounter(null); setPhase('board'); setPerks({ armor: 0, repair: 0, salvage: 0 }); setMessage('New descent initialized.'); };
 
   return <main className="mb-shell"><ThreeScene danger={Boolean(encounter)} /><header className="mb-top"><div className="mb-brand"><span><Pickaxe /></span><b>MINE<i>BREAK</i></b><small>ROGUELIKE PROTOCOL</small></div><div className="sector"><i /> SECTOR {String(floor).padStart(2, '0')} <span>DEPTH {floor * 120}M</span></div><button onClick={newRun}><RotateCcw /> NEW RUN</button></header>

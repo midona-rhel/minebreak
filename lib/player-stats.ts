@@ -12,6 +12,41 @@ export type RunPlayerStats = Pick<
   'health' | 'maxHealth' | 'xp' | 'upgrades'
 >;
 
+/** Shared caps for encounter returns, board rewards, and floor upgrades. */
+export const RUN_STAT_LIMITS = Object.freeze({
+  health: 100,
+  xp: 1_000_000_000,
+  upgrade: 100,
+});
+
+/** Internal harness rewards use the same XP cap on every transition. */
+export function awardRunXP(currentXP: number, reward: number): number {
+  return Math.min(RUN_STAT_LIMITS.xp, currentXP + reward);
+}
+
+export function applyFloorUpgrade(
+  current: RunPlayerStats,
+  upgrade: keyof RunPlayerStats['upgrades'],
+): RunPlayerStats {
+  const maxHealth =
+    upgrade === 'armor'
+      ? Math.min(RUN_STAT_LIMITS.health, current.maxHealth + 1)
+      : current.maxHealth;
+  const healing = upgrade === 'armor' ? 1 : upgrade === 'repair' ? 2 : 0;
+  return {
+    health: Math.min(maxHealth, current.health + healing),
+    maxHealth,
+    xp: current.xp,
+    upgrades: {
+      ...current.upgrades,
+      [upgrade]: Math.min(
+        RUN_STAT_LIMITS.upgrade,
+        current.upgrades[upgrade] + 1,
+      ),
+    },
+  };
+}
+
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -50,26 +85,50 @@ export function resolveEncounterStats(
   const upgrades = record(
     Object.hasOwn(patch, 'upgrades') ? patch.upgrades : undefined,
   );
-  const maxHealth = integer(patch, 'maxHealth', 1, 100, current.maxHealth);
+  const maxHealth = integer(
+    patch,
+    'maxHealth',
+    1,
+    RUN_STAT_LIMITS.health,
+    current.maxHealth,
+  );
   const defaultHealth =
     result.outcome === 'failure'
       ? Math.max(0, current.health - Math.max(1, 2 - current.upgrades.armor))
       : current.health;
   const defaultXP =
     result.outcome === 'success'
-      ? Math.min(1_000_000_000, current.xp + defaultRewardXP)
+      ? awardRunXP(current.xp, defaultRewardXP)
       : current.xp;
   return {
     health: Math.min(
       maxHealth,
-      integer(patch, 'health', 0, 100, defaultHealth),
+      integer(patch, 'health', 0, RUN_STAT_LIMITS.health, defaultHealth),
     ),
     maxHealth,
-    xp: integer(patch, 'xp', 0, 1_000_000_000, defaultXP),
+    xp: integer(patch, 'xp', 0, RUN_STAT_LIMITS.xp, defaultXP),
     upgrades: {
-      armor: integer(upgrades, 'armor', 0, 100, current.upgrades.armor),
-      repair: integer(upgrades, 'repair', 0, 100, current.upgrades.repair),
-      salvage: integer(upgrades, 'salvage', 0, 100, current.upgrades.salvage),
+      armor: integer(
+        upgrades,
+        'armor',
+        0,
+        RUN_STAT_LIMITS.upgrade,
+        current.upgrades.armor,
+      ),
+      repair: integer(
+        upgrades,
+        'repair',
+        0,
+        RUN_STAT_LIMITS.upgrade,
+        current.upgrades.repair,
+      ),
+      salvage: integer(
+        upgrades,
+        'salvage',
+        0,
+        RUN_STAT_LIMITS.upgrade,
+        current.upgrades.salvage,
+      ),
     },
   };
 }
