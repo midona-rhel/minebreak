@@ -144,12 +144,12 @@ test('sand meets the shared wave shoreline at sea level and slopes underwater', 
   );
 });
 
-test('44 deterministic instanced rocks animate without overlapping the gameplay area', () => {
+test('twelve deterministic rocks form four sparse groups outside gameplay', () => {
   const a = createFloatingRocks(5),
     b = createFloatingRocks(5);
   const rockA = a.group.children[0],
     rockB = b.group.children[0];
-  assert.equal(rockA.count, 44);
+  assert.equal(rockA.count, 12);
   assert.deepEqual(rockA.instanceMatrix.array, rockB.instanceMatrix.array);
   const before = [...rockA.instanceMatrix.array];
   a.update(2);

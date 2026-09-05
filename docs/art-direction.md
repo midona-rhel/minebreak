@@ -16,6 +16,7 @@ The current direction follows the fantasy diorama reference: a miniature island 
 - Use an orbitable perspective camera, warm key light, soft shadows, cool rim light, environment reflections, restrained bloom and depth of field. Keep the entire game board within a sharp focal band.
 - Tiles, props and water must have deliberate surface ordering: flat foundation -0.23, tile tops above it, beach at the rock base, sea -2.65. Validate closed cliff topology, matching module seams, and top clearance before adding decoration.
 - Crystal shards lean away from the cluster center; all pieces share one mineral color. Roots and branches taper, and animated cloth remains pinned along the pole.
+- Compose the perimeter as named landmarks (grove, amethyst sanctum, rune watch, quiet cove and lantern crossing), not an evenly spaced prop loop. Cliff cascades must begin at a tree trunk. Keep floating debris in a few sparse formations.
 
 ## Gameplay readability
 

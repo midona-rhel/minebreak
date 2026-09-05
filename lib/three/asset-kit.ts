@@ -489,11 +489,13 @@ function crystalPrism(radius: number, height: number, color: number) {
       Math.sin((i / n) * Math.PI * 2) * r,
     );
   for (let i = 0; i < n; i++) {
-    const a = v(i, 0, radius * 0.7),
-      b = v(i + 1, 0, radius * 0.7),
-      c = v(i + 1, height * 0.7, radius),
-      d = v(i, height * 0.7, radius),
-      tip = new THREE.Vector3(-radius * 0.14, height, radius * 0.05);
+    // A true hexagonal shaft and short faceted crown. Keeping the sides parallel
+    // makes the silhouette read as a crystal rather than a lumpy cone.
+    const a = v(i, 0, radius),
+      b = v(i + 1, 0, radius),
+      c = v(i + 1, height * 0.78, radius),
+      d = v(i, height * 0.78, radius),
+      tip = new THREE.Vector3(radius * 0.06, height, -radius * 0.04);
     for (const triangle of [
       [a, d, b],
       [b, d, c],
@@ -502,8 +504,8 @@ function crystalPrism(radius: number, height: number, color: number) {
     ]) {
       const tint = base
         .clone()
-        .lerp(new THREE.Color(0xffffff), 0.22)
-        .multiplyScalar([0.9, 1.02, 0.95, 1.08, 0.98, 1][i]);
+        .lerp(new THREE.Color(0xffffff), 0.12)
+        .multiplyScalar([0.72, 0.9, 0.78, 1.08, 0.86, 1][i]);
       for (const p of triangle) {
         points.push(p.x, p.y, p.z);
         colors.push(tint.r, tint.g, tint.b);
@@ -521,9 +523,9 @@ function crystalPrism(radius: number, height: number, color: number) {
     color: 0xffffff,
     vertexColors: true,
     flatShading: true,
-    roughness: 0.095,
+    roughness: 0.16,
     metalness: 0,
-    transmission: 0.62,
+    transmission: 0.48,
     thickness: radius * 2.5,
     ior: 1.52,
     clearcoat: 1,
@@ -535,7 +537,7 @@ function crystalPrism(radius: number, height: number, color: number) {
     attenuationDistance: 1.6,
     dispersion: 0.35,
     emissive: color,
-    emissiveIntensity: 0.85,
+    emissiveIntensity: 0.36,
     envMapIntensity: 1.35,
   });
   const prism = new THREE.Mesh(geometry, material);
@@ -548,11 +550,13 @@ export function createCrystal(color = palette.crystal) {
   group.name = 'crystal-cluster';
   const r = random(541);
   const crystals = [
-    [0, 0, 1.5, 0.235, 0],
-    [-0.37, 0.05, 0.96, 0.145, 0.3],
-    [0.31, 0.2, 0.84, 0.14, 0.33],
-    [-0.18, -0.36, 0.65, 0.12, 0.4],
-    [0.1, 0.43, 0.52, 0.11, 0.43],
+    [0, 0, 1.78, 0.245, 0],
+    [-0.42, 0.04, 1.12, 0.155, 0.28],
+    [0.4, 0.16, 0.94, 0.145, 0.31],
+    [-0.24, -0.39, 0.78, 0.125, 0.36],
+    [0.17, 0.45, 0.67, 0.115, 0.4],
+    [0.47, -0.32, 0.62, 0.105, 0.42],
+    [-0.53, 0.31, 0.55, 0.095, 0.43],
   ];
   const up = new THREE.Vector3(0, 1, 0);
   const orientOutward = (
@@ -576,50 +580,32 @@ export function createCrystal(color = palette.crystal) {
     orientOutward(c, x, z, tilt);
     group.add(c);
   }
-  // Smaller shards share the same mineral color and radiate from the same socket.
-  for (const [x, z, height, radius, tilt] of [
-    [0.39, -0.29, 0.69, 0.115, 0.32],
-    [0.57, -0.03, 0.51, 0.09, 0.45],
-    [0.2, -0.52, 0.46, 0.085, 0.45],
-  ]) {
-    const c = crystalPrism(radius, height, color);
-    c.name = 'crystal-satellite';
-    orientOutward(c, x, z, tilt);
-    group.add(c);
-  }
-  // A broad, closed level socket buries even the outward-leaning base caps.
+  // A compact, closed socket buries the leaning bases without surrounding the
+  // cluster with enough rubble to obscure its six-sided silhouettes.
   const socket = mesh(
-    new THREE.CylinderGeometry(0.73, 0.67, 0.13, 7),
-    0x5d5657,
-    0.03,
+    new THREE.CylinderGeometry(0.64, 0.59, 0.12, 7),
+    0x554d5d,
+    0,
     -0.055,
-    -0.015,
+    0,
   );
   socket.scale.z = 0.9;
   group.add(socket);
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2 + 0.16;
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + 0.16;
     const rock = mesh(
       new THREE.DodecahedronGeometry(0.1 + r() * 0.05, 0),
       i % 2 ? 0x74675d : 0x85776c,
-      Math.cos(a) * 0.4,
+      Math.cos(a) * 0.43,
       -0.035,
-      Math.sin(a) * 0.35,
+      Math.sin(a) * 0.38,
     );
     rock.scale.y = 0.6;
     group.add(rock);
-    mossPatch(
-      group,
-      Math.cos(a) * 0.4,
-      -0.005,
-      Math.sin(a) * 0.35,
-      0.1,
-      0x6d7f28,
-    );
   }
   const glow = new THREE.PointLight(
     new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.22),
-    3.0,
+    2.1,
     2.8,
     2,
   );
@@ -627,7 +613,7 @@ export function createCrystal(color = palette.crystal) {
   group.add(glow);
   // A soft optical halo preserves readable glass facets instead of overexposing them.
   const aura = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.55, 1.95),
+    new THREE.PlaneGeometry(1.25, 1.85),
     new THREE.ShaderMaterial({
       uniforms: { tint: { value: new THREE.Color(color).multiplyScalar(1.8) } },
       transparent: true,
@@ -636,7 +622,7 @@ export function createCrystal(color = palette.crystal) {
       vertexShader:
         'varying vec2 vUv; void main(){vUv=uv;vec4 center=modelViewMatrix*vec4(0.,.62,0.,1.);vec2 scale=vec2(length(modelMatrix[0].xyz),length(modelMatrix[1].xyz));center.xy+=position.xy*scale;gl_Position=projectionMatrix*center;}',
       fragmentShader:
-        'varying vec2 vUv;uniform vec3 tint;void main(){vec2 p=(vUv-.5)*2.;float a=exp(-dot(p,p)*4.)*.17*(1.-smoothstep(.65,1.,length(p)));gl_FragColor=vec4(tint,a);}',
+        'varying vec2 vUv;uniform vec3 tint;void main(){vec2 p=(vUv-.5)*2.;float a=exp(-dot(p,p)*4.6)*.09*(1.-smoothstep(.62,1.,length(p)));gl_FragColor=vec4(tint,a);}',
     }),
   );
   aura.name = 'crystal-glow';
@@ -866,36 +852,111 @@ export function createFoliage(variant = 0) {
   }
   return bake(group);
 }
+
+/** A low, colorful landmark used as one concentrated patch, not border confetti. */
+export function createMushroomPatch(variant = 0) {
+  const group = new THREE.Group();
+  group.name = 'ambercap-mushroom-patch';
+  const r = random(variant * 43 + 811);
+  for (let i = 0; i < 7; i++) {
+    const angle = i * 2.23 + r() * 0.35;
+    const reach = 0.08 + r() * 0.38;
+    const height = 0.16 + r() * 0.22;
+    const stem = mesh(
+      new THREE.CylinderGeometry(0.025, 0.04, height, 7),
+      0xe3d5a7,
+      Math.cos(angle) * reach,
+      height * 0.5,
+      Math.sin(angle) * reach,
+    );
+    group.add(stem);
+    const cap = mesh(
+      new THREE.SphereGeometry(0.095 + r() * 0.055, 9, 5, 0, Math.PI * 2, 0, Math.PI * 0.55),
+      i % 3 === 0 ? 0x8f4ac1 : i % 2 ? 0xe99336 : 0xc65e3f,
+      stem.position.x,
+      height,
+      stem.position.z,
+    );
+    cap.scale.y = 0.55;
+    cap.rotation.y = angle;
+    group.add(cap);
+  }
+  return bake(group);
+}
+
+/** A single mossy rune marker gives the eastern edge a vertical, non-tree landmark. */
+export function createRuneWaystone(variant = 0) {
+  const group = new THREE.Group();
+  group.name = 'teal-rune-waystone';
+  const stone = fracturedRock(0.58, 1.45, 0.43, variant + 319, 0x68636c);
+  stone.position.y = 0.67;
+  group.add(stone);
+  for (let i = 0; i < 4; i++) {
+    const angle = i * 1.7 + 0.25;
+    const foot = fracturedRock(0.22, 0.2, 0.2, variant + i * 9, 0x766f68);
+    foot.position.set(Math.cos(angle) * 0.34, 0.05, Math.sin(angle) * 0.28);
+    group.add(foot);
+  }
+  const runeMaterial = new THREE.MeshStandardMaterial({
+    color: 0x6ffcf0,
+    emissive: 0x22d6ca,
+    emissiveIntensity: 1.8,
+    roughness: 0.35,
+  });
+  const rune = new THREE.Group();
+  rune.name = 'waystone-rune';
+  const vertical = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.48, 0.025), runeMaterial);
+  vertical.position.set(0, 0.8, 0.225);
+  vertical.rotation.z = -0.18;
+  rune.add(vertical);
+  for (const [x, y, rotation] of [
+    [-0.07, 0.89, -0.72],
+    [0.07, 0.69, -0.72],
+  ] as const) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.025), runeMaterial);
+    arm.position.set(x, y, 0.227);
+    arm.rotation.z = rotation;
+    rune.add(arm);
+  }
+  group.add(rune);
+  const light = new THREE.PointLight(0x35e8d9, 1.15, 2.3, 2);
+  light.position.set(0, 0.83, 0.34);
+  group.add(light);
+  return bake(group);
+}
+
 export function createRoots(variant = 0) {
   const group = new THREE.Group();
-  group.name = 'roots';
-  const sway = Math.sin(variant * 1.7) * 0.06;
+  group.name = 'tree-root-cascade';
+  const sway = Math.sin(variant * 1.7) * 0.05;
   const main = [
-    new THREE.Vector3(-0.35, 0.03, -0.2),
-    new THREE.Vector3(0.08, -0.12, 0.08),
-    new THREE.Vector3(0.3, -0.48, 0.18),
-    new THREE.Vector3(0.14 + sway, -0.9, 0.19),
-    new THREE.Vector3(0.05 + sway, -1.3, 0.2),
-    new THREE.Vector3(0.13 + sway, -1.75, 0.18),
+    new THREE.Vector3(0, 0.09, 0),
+    new THREE.Vector3(0.03, 0.02, 0.28),
+    new THREE.Vector3(0.1, -0.08, 0.54),
+    new THREE.Vector3(0.16 + sway, -0.46, 0.64),
+    new THREE.Vector3(0.08 + sway, -0.98, 0.68),
+    new THREE.Vector3(0.13 + sway, -1.58, 0.65),
   ];
   const curve = new THREE.CatmullRomCurve3(main);
-  group.add(createTaperedBranch(main, 0.105, 0.006, 0x765027));
-  const fork = curve.getPointAt(0.4);
-  const branch = [
-    fork,
-    fork.clone().add(new THREE.Vector3(0.17, -0.15, 0.01)),
-    fork.clone().add(new THREE.Vector3(0.29, -0.4, 0.02)),
-    fork.clone().add(new THREE.Vector3(0.3, -0.63, 0)),
-  ];
-  group.add(createTaperedBranch(branch, 0.043, 0.003, 0x93703a));
-  for (let i = 0; i < 3; i++) {
-    const t = 0.2 + i * 0.18;
-    const radius = 0.006 + 0.099 * Math.pow(1 - t, 1.25);
-    const l = leaf(0.13, 0.045, i % 2 ? 0x718724 : 0x92a039);
-    l.position.copy(curve.getPointAt(t));
-    l.position.z += radius * 0.7;
-    l.rotation.set(-0.3, i % 2 ? 0.8 : -0.8, 0);
-    group.add(l);
+  group.add(createTaperedBranch(main, 0.12, 0.006, 0x765027));
+  for (const [t, side] of [
+    [0.23, -1],
+    [0.42, 1],
+  ] as const) {
+    const fork = curve.getPointAt(t);
+    group.add(
+      createTaperedBranch(
+        [
+          fork,
+          fork.clone().add(new THREE.Vector3(side * 0.17, -0.12, 0.08)),
+          fork.clone().add(new THREE.Vector3(side * 0.31, -0.39, 0.13)),
+          fork.clone().add(new THREE.Vector3(side * 0.34, -0.64, 0.1)),
+        ],
+        0.04,
+        0.003,
+        0x8b6133,
+      ),
+    );
   }
   return bake(group);
 }
@@ -914,6 +975,8 @@ export function createTree(variant = 0) {
   ];
   const trunkCurve = new THREE.CatmullRomCurve3(trunk);
   group.add(createTaperedBranch(trunk, 0.17, 0.025, 0x695035));
+  // Buttress roots visibly continue from the trunk into the soil. Long cliff
+  // cascades are attached to this same origin by the scene composer.
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + 0.2;
     group.add(

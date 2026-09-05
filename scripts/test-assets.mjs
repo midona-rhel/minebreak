@@ -7,8 +7,8 @@ const directory = new URL('../public/assets/shared/', import.meta.url);
 const files = (await readdir(directory)).filter((name) =>
   name.endsWith('.json'),
 );
-test('shared kit contains all fourteen intended assets', () =>
-  assert.equal(files.length, 14));
+test('shared kit contains all sixteen intended assets', () =>
+  assert.equal(files.length, 16));
 for (const file of files) {
   test(`${file} loads with ObjectLoader and has usable geometry`, async () => {
     const source = JSON.parse(await readFile(new URL(file, directory), 'utf8'));

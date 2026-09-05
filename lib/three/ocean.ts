@@ -5,9 +5,11 @@ import { shorelineRadius } from './terrain';
 export const SEA_LEVEL = -2.65;
 const TAU = Math.PI * 2;
 const waveDirections = [
-  [0.92, 0.39, 0.115, 1.25, 1.1],
-  [-0.36, 0.93, 0.065, 2.1, 1.55],
-  [0.72, -0.69, 0.035, 3.7, 2.05],
+  [0.92, 0.39, 0.105, 0.47, 0.79, 0.3],
+  [0.74, 0.67, 0.062, 0.72, 1.03, 2.1],
+  [-0.36, 0.93, 0.027, 1.35, 1.41, 4.7],
+  [0.72, -0.69, 0.018, 2.13, 1.83, 1.2],
+  [0.98, -0.2, 0.012, 3.2, 2.12, 3.4],
 ] as const;
 
 function coastDistance(x: number, z: number) {
@@ -16,10 +18,23 @@ function coastDistance(x: number, z: number) {
 
 export function sampleWave(x: number, z: number, time: number) {
   let y = SEA_LEVEL;
-  for (const [dx, dz, amplitude, frequency, speed] of waveDirections)
-    y += amplitude * Math.sin((x * dx + z * dz) * frequency - time * speed);
-  const d = coastDistance(x, z);
-  return y + 0.075 * Math.sin(d * 3.4 - time * 1.65) * Math.exp(-d * d * 0.035);
+  for (const [dx, dz, amplitude, frequency, speed, phase] of waveDirections)
+    y += amplitude * Math.sin((x * dx + z * dz) * frequency - time * speed + phase);
+  return y;
+}
+
+export function sampleWaveNormal(x: number, z: number, time: number) {
+  let gradientX = 0,
+    gradientZ = 0;
+  for (const [dx, dz, amplitude, frequency, speed, phase] of waveDirections) {
+    const gradient =
+      amplitude *
+      frequency *
+      Math.cos((x * dx + z * dz) * frequency - time * speed + phase);
+    gradientX += dx * gradient;
+    gradientZ += dz * gradient;
+  }
+  return new THREE.Vector3(-gradientX, 1, -gradientZ).normalize();
 }
 
 const coastGLSL = `
@@ -46,18 +61,14 @@ ${coastGLSL}
 // x is elevation; yz are analytic partial derivatives with respect to world xz.
 vec3 oceanWave(vec2 p,float t) {
   vec3 wave=vec3(0.);
-  vec2 dirs[3]; dirs[0]=vec2(.92,.39); dirs[1]=vec2(-.36,.93); dirs[2]=vec2(.72,-.69);
-  float amps[3]; amps[0]=.115; amps[1]=.065; amps[2]=.035;
-  float freq[3]; freq[0]=1.25; freq[1]=2.1; freq[2]=3.7;
-  float speed[3]; speed[0]=1.1; speed[1]=1.55; speed[2]=2.05;
-  for(int i=0;i<3;i++) {
-    float a=dot(p,dirs[i])*freq[i]-t*speed[i];
-    wave.x+=amps[i]*sin(a);
-    wave.yz+=amps[i]*freq[i]*cos(a)*dirs[i];
-  }
-  float d=coast(p), falloff=exp(-d*d*.035), phase=d*3.4-t*1.65;
-  wave.x+=.075*sin(phase)*falloff;
-  wave.yz+=.075*falloff*(3.4*cos(phase)-.07*d*sin(phase))*coastGradient(p);
+  ${waveDirections
+    .map(
+      ([dx, dz, amplitude, frequency, speed, phase], index) => `
+  float phase${index}=dot(p,vec2(${dx},${dz}))*${frequency}-t*${speed}+${phase};
+  wave.x+=${amplitude}*sin(phase${index});
+  wave.yz+=${amplitude * frequency}*cos(phase${index})*vec2(${dx},${dz});`,
+    )
+    .join('')}
   return wave;
 }
 `;
@@ -68,6 +79,13 @@ float noise(vec2 p) {
   vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f);
   return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+1.),f.x),f.y);
 }
+float fbm(vec2 p) {
+  float result=noise(p)*.57;
+  p=mat2(.8,-.6,.6,.8)*p*2.13+17.4;
+  result+=noise(p)*.28;
+  p=mat2(.6,.8,-.8,.6)*p*2.07+9.1;
+  return result+noise(p)*.15;
+}
 `;
 
 export function createOcean() {
@@ -75,7 +93,10 @@ export function createOcean() {
   group.name = 'ocean-and-breaking-surf';
   const uniformTime = { value: 0 };
   const waterMaterial = new THREE.ShaderMaterial({
-    uniforms: { uTime: uniformTime },
+    uniforms: {
+      uTime: uniformTime,
+      uHorizon: { value: new THREE.Color(0xb5d0d6) },
+    },
     vertexShader: `
       uniform float uTime;
       varying vec3 vWorld;
@@ -89,6 +110,7 @@ export function createOcean() {
     `,
     fragmentShader: `
       uniform float uTime;
+      uniform vec3 uHorizon;
       varying vec3 vWorld;
       ${waveGLSL}
       ${noiseGLSL}
@@ -97,43 +119,47 @@ export function createOcean() {
         float d=coast(p);
         if(d < -1.7) discard;
         vec3 wave=oceanWave(p,uTime);
-        // The same derivative as displacement, with only subpixel ripples added here.
-        vec2 detail=vec2(cos(p.x*10.1+p.y*4.7-uTime*2.2),cos(p.y*9.3-p.x*3.6-uTime*1.8))*.028;
+        // Wind-advected microstructure breaks up bands without printing sine
+        // contours across the surface.
+        vec2 wind=p*2.1-vec2(uTime*.13,uTime*.08);
+        float epsilon=.065;
+        vec2 detail=vec2(fbm(wind+vec2(epsilon,0.))-fbm(wind-vec2(epsilon,0.)),fbm(wind+vec2(0.,epsilon))-fbm(wind-vec2(0.,epsilon)))*.2;
         vec3 n=normalize(vec3(-wave.y-detail.x,1.,-wave.z-detail.y));
         vec3 viewDir=normalize(cameraPosition-vWorld);
         vec3 lightDir=normalize(vec3(-.65,.85,.25));
         float fresnel=.025+.975*pow(1.-max(dot(n,viewDir),0.),5.);
-        float shallows=exp(-max(d,0.)*.27);
-        vec3 deep=vec3(.022,.14,.23), shallow=vec3(.045,.40,.34);
+        float shallows=exp(-max(d,0.)*.72);
+        vec3 deep=vec3(.017,.087,.145), shallow=vec3(.039,.24,.205);
         vec3 water=mix(deep,shallow,shallows);
-        // Sandy submerged shelf gives the water depth instead of a flat painted fill.
-        float caustic=pow(.5+.5*sin(p.x*5.1+sin(p.y*3.1-uTime)*1.7+uTime),11.);
-        water+=vec3(.08,.115,.055)*caustic*shallows;
-        vec3 sky=mix(vec3(.26,.43,.57),vec3(.77,.68,.48),pow(max(dot(reflect(-viewDir,n),lightDir),0.),3.));
-        water=mix(water,sky,fresnel*.75);
-        float specular=pow(max(dot(n,normalize(lightDir+viewDir)),0.),155.);
-        water+=vec3(1.5,1.14,.65)*specular*.75;
-        float breaking=.5+.5*sin(d*3.4-uTime*1.65);
-        float turbulent=noise(p*3.6+vec2(uTime*.2,-uTime*.11))*.6+noise(p*8.5-uTime*.16)*.4;
-        float rim=exp(-pow((d-.4+wave.x*.75)*1.7,2.));
-        float froth=smoothstep(.49,.72,turbulent+breaking*.22)*rim;
-        // A fading second wash rolls outward; broken coverage avoids contour-line rings.
-        float wash=exp(-pow((d-1.05-.25*sin(uTime*1.65))*2.5,2.));
-        froth=max(froth,wash*smoothstep(.59,.76,turbulent)*.62);
-        water=mix(water,vec3(.77,.88,.78),froth*.9);
-        float horizon=1.-exp(-max(length(p)-18.,0.)*.028);
-        water=mix(water,vec3(.23,.39,.48),horizon*.55);
+        float sandyShelf=exp(-pow((d-.25)*1.8,2.));
+        water+=vec3(.038,.048,.014)*smoothstep(.56,.75,fbm(p*3.3+uTime*.08))*sandyShelf;
+        vec3 reflected=reflect(-viewDir,n);
+        vec3 sky=mix(uHorizon,vec3(.22,.37,.48),smoothstep(0.,.9,reflected.y));
+        sky+=vec3(.13,.08,.025)*pow(max(dot(reflected,lightDir),0.),5.);
+        water=mix(water,sky,.13+fresnel*.72);
+        float specular=pow(max(dot(n,normalize(lightDir+viewDir)),0.),110.);
+        water+=vec3(.37,.29,.17)*specular;
+        float breaking=smoothstep(.045,.14,wave.x);
+        float turbulent=fbm(p*2.8-vec2(uTime*.18,uTime*.1));
+        float patches=smoothstep(.56,.73,fbm(p*.9+vec2(uTime*.035,-uTime*.045)));
+        float wash=exp(-pow((d+wave.x*1.9-.03)*3.3,2.));
+        float froth=wash*breaking*patches*smoothstep(.4,.65,turbulent);
+        water=mix(water,vec3(.54,.7,.66),froth*.68);
+        // Match the scene background before the camera's far clip so even the
+        // widest allowed orbit has no visible finite plane edge.
+        float horizon=smoothstep(42.,92.,length(p));
+        water=mix(water,uHorizon,horizon);
         gl_FragColor=vec4(water,1.);
       }
     `,
   });
-  // Concentrate vertices around the island while still covering the distant ocean.
+  // One continuous mesh: dense near the dollhouse, sparse out to two kilometres.
   const geometry = new THREE.PlaneGeometry(2, 2, 224, 224);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.getAttribute('position');
   for (let i = 0; i < positions.count; i++) {
     const stretch = (v: number) =>
-      Math.sign(v) * (Math.abs(v) * 13 + Math.pow(Math.abs(v), 4) * 55);
+      Math.sign(v) * (Math.abs(v) * 17 + Math.pow(Math.abs(v), 8) * 1983);
     positions.setXYZ(
       i,
       stretch(positions.getX(i)),
@@ -151,7 +177,7 @@ export function createOcean() {
   const dropletMaterial = new THREE.MeshBasicMaterial({
     color: 0xbce9df,
     transparent: true,
-    opacity: 0.7,
+    opacity: 0.48,
     depthWrite: false,
   });
   const count = 144;
@@ -165,7 +191,7 @@ export function createOcean() {
   spray.frustumCulled = false;
   group.add(spray);
   const dummy = new THREE.Object3D();
-  const period = TAU / 1.65;
+  const period = TAU / waveDirections[0][4];
   // Twelve bursts around the actual beach contour. Their cycle follows the shore wave.
   const sources = Array.from({ length: 12 }, (_, index) => {
     const angle = (index / 12) * TAU + 0.13;
@@ -182,7 +208,12 @@ export function createOcean() {
     return {
       p,
       normal,
-      phase: (coastDistance(p.x, p.y) * 3.4 - Math.PI / 2) / 1.65,
+      phase:
+        ((p.x * waveDirections[0][0] + p.y * waveDirections[0][1]) *
+          waveDirections[0][3] +
+          waveDirections[0][5] -
+          Math.PI / 2) /
+        waveDirections[0][4],
     };
   });
 
@@ -194,7 +225,9 @@ export function createOcean() {
       const age =
         (((time - source.phase - particle * 0.018) % period) + period) % period;
       const lifetime = 0.56 + (particle % 4) * 0.07;
-      if (age > lifetime) {
+      const birthTime = time - age;
+      const crest = sampleWave(source.p.x, source.p.y, birthTime) - SEA_LEVEL;
+      if (age > lifetime || crest < 0.09) {
         dummy.scale.setScalar(0);
       } else {
         const spread = Math.sin(i * 14.31) * 0.16;

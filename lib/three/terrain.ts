@@ -305,7 +305,21 @@ export function createFloatingRocks(seed = 918) {
   let state = seed >>> 0;
   const rand = () =>
     (state = (state * 1664525 + 1013904223) >>> 0) / 4294967296;
-  const count = 44;
+  const formations = [
+    [-9.8, -2.6, 0.72, 1.6],
+    [-10.9, -3.35, 0.34, 0.35],
+    [-9.45, -4.15, 0.22, -0.15],
+    [8.8, -6.1, 0.58, 1.05],
+    [10.05, -5.55, 0.28, 0.18],
+    [9.55, -7.05, 0.2, -0.28],
+    [8.15, 7.65, 0.48, 0.72],
+    [9.3, 7.05, 0.24, -0.1],
+    [7.35, 8.6, 0.17, 0.05],
+    [-8.6, 7.35, 0.4, 0.82],
+    [-9.55, 8.2, 0.21, 0.03],
+    [-7.7, 8.7, 0.16, -0.2],
+  ] as const;
+  const count = formations.length;
   const geometry = new THREE.IcosahedronGeometry(1, 1);
   const positions = geometry.attributes.position;
   for (let i = 0; i < positions.count; i++) {
@@ -333,19 +347,17 @@ export function createFloatingRocks(seed = 918) {
   }[] = [];
   const dummy = new THREE.Object3D();
   for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2 + (rand() - 0.5) * 0.11;
-    const distance = roundedSquareRadius(angle, 7.6 + rand() * 5.7);
-    const size = 0.12 + rand() ** 1.5 * 0.52;
+    const [x, z, size, height] = formations[i];
     const position = new THREE.Vector3(
-      Math.cos(angle) * distance,
-      -0.9 + rand() * 3.2,
-      Math.sin(angle) * distance,
+      x + (rand() - 0.5) * 0.12,
+      height + (rand() - 0.5) * 0.2,
+      z + (rand() - 0.5) * 0.12,
     );
     poses.push({
       position,
       scale: new THREE.Vector3(
-        size * (0.7 + rand() * 0.4),
-        size * (1.15 + rand() * 1.5),
+        size * (0.72 + rand() * 0.35),
+        size * (1.2 + rand() * 1.1),
         size * 0.8,
       ),
       rotation: new THREE.Euler(rand(), rand() * Math.PI, rand() * 0.7),
@@ -354,13 +366,14 @@ export function createFloatingRocks(seed = 918) {
     });
     rocks.setColorAt(
       i,
-      new THREE.Color(i % 4 === 0 ? 0x938475 : 0x6c7074).multiplyScalar(
+      new THREE.Color(i % 3 === 0 ? 0x8f8174 : 0x626970).multiplyScalar(
         0.8 + rand() * 0.4,
       ),
     );
   }
   rocks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  // Fragments bob outside the island but never drift into the camera's focal board.
+  // Four sparse formations frame the island; they read as landmarks instead of
+  // a mechanically even ring of debris.
   const update = (time: number) => {
     poses.forEach((pose, i) => {
       dummy.position.copy(pose.position);

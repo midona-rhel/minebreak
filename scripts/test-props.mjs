@@ -62,14 +62,14 @@ function assertClosedOutward(geometry) {
   if (triangles !== geometry) triangles.dispose();
 }
 
-test('crystal composition has one hero and seven closed outward-radiating shards', () => {
+test('crystal composition has one hero and six closed outward-radiating shards', () => {
   const cluster = createCrystal();
   const hero = cluster.getObjectByName('crystal-hero');
   assert.ok(hero);
   const shards = cluster.children.filter(
     (child) => child.name === 'crystal-satellite',
   );
-  assert.equal(shards.length, 7);
+  assert.equal(shards.length, 6);
   for (const crystal of [hero, ...shards]) {
     assertClosedOutward(crystal.geometry);
     assert.ok(crystal.material.transmission > 0.4);
@@ -147,7 +147,7 @@ test('organic branches narrow continuously along transported frames and have clo
   const roots = createRoots();
   assert.equal(roots.children.filter((child) => child.isMesh).length, 1);
   const bounds = new THREE.Box3().setFromObject(roots);
-  assert.ok(bounds.min.y < -1.7 && bounds.max.y < 0.2);
+  assert.ok(bounds.min.y < -1.5 && bounds.max.y < 0.25);
   disposeObjects(roots);
 });
 

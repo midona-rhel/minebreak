@@ -18,7 +18,9 @@ import {
   createPortal,
   createBridge,
   createFoliage,
+  createMushroomPatch,
   createRoots,
+  createRuneWaystone,
   createTree,
   updateAssetAnimations,
   disposeObjects,
@@ -136,7 +138,7 @@ export default function Overworld(props: Props) {
     controls.minPolarAngle = 0.32;
     controls.maxPolarAngle = 1.13;
     controls.minDistance = 13.5;
-    controls.maxDistance = 39;
+    controls.maxDistance = 34;
     controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.DOLLY,
@@ -211,66 +213,111 @@ export default function Overworld(props: Props) {
     scene.add(island);
     island.add(createIslandCliff(), createBeach());
     const baseline = TERRAIN.topY;
-    // Border props have a real supporting surface; no random rocks intrude into cells.
-    for (let i = 0; i < 20; i++) {
-      const edge = i % 4,
-        along = (Math.floor(i / 4) - 2) * 1.75;
-      const x = edge < 2 ? along : edge === 2 ? -4.65 : 4.65,
-        z = edge < 2 ? (edge === 0 ? -4.65 : 4.65) : along;
-      const plant = createFoliage(i);
-      plant.position.set(x, baseline, z);
-      plant.rotation.y = i * 2;
-      island.add(plant);
-      if (i % 3 === 0) {
-        const root = createRoots(i);
-        root.position.set(x, baseline, z);
-        root.position.x += edge === 2 ? -0.42 : edge === 3 ? 0.42 : 0;
-        root.position.z += edge === 0 ? -0.42 : edge === 1 ? 0.42 : 0;
-        root.rotation.y =
-          edge === 0
-            ? Math.PI
-            : edge === 2
-              ? -Math.PI / 2
-              : edge === 3
-                ? Math.PI / 2
-                : 0;
-        island.add(root);
-      }
-    }
-    for (const [x, z, scale, rotation] of [
-      [-4.62, 2.7, 0.9, 0.1],
-      [4.55, -3.45, 1.05, 2.5],
-      [-4.55, -0.8, 0.55, 1.3],
-    ]) {
-      const crystal = createCrystal();
-      crystal.position.set(x, baseline, z);
-      crystal.scale.setScalar(scale);
-      crystal.rotation.y = rotation;
-      island.add(crystal);
-    }
-    for (const [x, z, scale, rotation] of [
-      [-4.72, -3.15, 0.75, 0.4],
-      [1.2, -4.72, 0.82, 1.8],
-      [4.72, 0.65, 0.7, 3],
-    ]) {
-      const tree = createTree(Math.round(rotation * 10));
-      tree.position.set(x, baseline, z);
+    // Five authored landmarks replace the old evenly-spaced prop loop. Each has
+    // a different silhouette and leaves a clean one-tile buffer around the board.
+    const addFoliage = (
+      owner: THREE.Group,
+      x: number,
+      z: number,
+      scale: number,
+      variant: number,
+    ) => {
+      const plant = createFoliage(variant);
+      plant.position.set(x, 0.01, z);
+      plant.scale.setScalar(scale);
+      plant.rotation.y = variant * 1.17;
+      owner.add(plant);
+    };
+    const addTree = (
+      owner: THREE.Group,
+      x: number,
+      z: number,
+      scale: number,
+      variant: number,
+      cascading = false,
+    ) => {
+      const tree = createTree(variant);
+      tree.position.set(x, 0, z);
       tree.scale.setScalar(scale);
-      tree.rotation.y = rotation;
-      island.add(tree);
-    }
-    for (const [x, z] of [
-      [-3.6, -4.55],
-      [4.4, 3.8],
-    ]) {
-      const lantern = createLantern();
-      lantern.position.set(x, baseline + 0.03, z);
-      island.add(lantern);
-    }
+      tree.rotation.y = Math.atan2(x, z);
+      owner.add(tree);
+      if (cascading) {
+        const roots = createRoots(variant);
+        roots.name = 'roots-attached-to-tree';
+        roots.position.copy(tree.position);
+        roots.scale.copy(tree.scale);
+        roots.rotation.copy(tree.rotation);
+        owner.add(roots);
+      }
+    };
+
+    const westernGrove = new THREE.Group();
+    westernGrove.name = 'landmark-western-grove';
+    westernGrove.position.y = baseline;
+    addTree(westernGrove, -4.72, -2.82, 0.82, 7, true);
+    addTree(westernGrove, -4.78, -3.82, 0.56, 19);
+    addFoliage(westernGrove, -4.42, -2.1, 1.05, 3);
+    addFoliage(westernGrove, -4.38, -3.65, 0.78, 14);
+    const groveLantern = createLantern();
+    groveLantern.position.set(-4.25, -0.01, -4.47);
+    groveLantern.scale.setScalar(0.78);
+    westernGrove.add(groveLantern);
+    island.add(westernGrove);
+
+    const amethystSanctum = new THREE.Group();
+    amethystSanctum.name = 'landmark-amethyst-sanctum';
+    amethystSanctum.position.y = baseline;
+    const crystal = createCrystal(0x842fc4);
+    crystal.position.set(4.7, 0.02, -3.28);
+    crystal.scale.setScalar(0.88);
+    crystal.rotation.y = -0.32;
+    amethystSanctum.add(crystal);
+    addFoliage(amethystSanctum, 4.45, -2.45, 0.82, 22);
+    addFoliage(amethystSanctum, 4.42, -4.05, 0.67, 27);
+    const sanctumLantern = createLantern();
+    sanctumLantern.position.set(4.43, 0, -4.48);
+    sanctumLantern.scale.setScalar(0.66);
+    amethystSanctum.add(sanctumLantern);
+    island.add(amethystSanctum);
+
+    const easternWatch = new THREE.Group();
+    easternWatch.name = 'landmark-eastern-rune-watch';
+    easternWatch.position.y = baseline;
+    const waystone = createRuneWaystone(31);
+    waystone.position.set(4.72, 0, 1.18);
+    waystone.rotation.y = -Math.PI / 2;
+    waystone.scale.setScalar(0.88);
+    easternWatch.add(waystone);
+    addFoliage(easternWatch, 4.42, 2.05, 1.12, 33);
+    addFoliage(easternWatch, 4.46, 0.28, 0.62, 38);
+    island.add(easternWatch);
+
+    const quietCove = new THREE.Group();
+    quietCove.name = 'landmark-quiet-cove';
+    quietCove.position.y = baseline;
+    addTree(quietCove, -3.05, 4.76, 0.62, 46, true);
+    const mushrooms = createMushroomPatch(46);
+    mushrooms.position.set(-3.86, 0.01, 4.43);
+    mushrooms.scale.setScalar(0.82);
+    quietCove.add(mushrooms);
+    addFoliage(quietCove, -3.83, 4.45, 0.9, 43);
+    addFoliage(quietCove, -2.2, 4.48, 0.58, 52);
+    island.add(quietCove);
+
     const bridge = createBridge();
     bridge.position.set(1.8, baseline, 4.7);
     bridge.scale.z = 1.25;
     island.add(bridge);
+    const crossing = new THREE.Group();
+    crossing.name = 'landmark-lantern-crossing';
+    crossing.position.y = baseline;
+    const crossingLantern = createLantern();
+    crossingLantern.position.set(3.72, 0, 4.5);
+    crossingLantern.scale.setScalar(0.72);
+    crossing.add(crossingLantern);
+    addFoliage(crossing, 3.14, 4.52, 0.72, 61);
+    addFoliage(crossing, 0.72, 4.48, 0.55, 65);
+    island.add(crossing);
     const rocks = createFloatingRocks();
     scene.add(rocks.group);
     const ocean = createOcean();
@@ -412,7 +459,7 @@ export default function Overworld(props: Props) {
       camera.aspect = aspect;
       camera.updateProjectionMatrix();
       defaultDistance = 22 * Math.max(1, 0.94 / aspect);
-      controls.maxDistance = Math.max(39, defaultDistance * 1.3);
+      controls.maxDistance = Math.max(34, defaultDistance * 1.22);
       // Fit only when the viewport shape changes substantially; don't undo orbiting.
       if (previousAspect === 0 || Math.abs(aspect - previousAspect) > 0.4)
         resetCamera();
