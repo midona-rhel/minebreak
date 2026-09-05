@@ -1,0 +1,13 @@
+# Diorama material atlas
+
+Asset: `public/assets/shared/diorama-material-atlas.png`.
+
+Created for Minebreak with the built-in imagegen tool, 2026-09-05. It is AI-generated surface artwork, not a downloaded third-party texture or a replacement scene image. The reference guides the material language; no source-reference pixels are embedded. No separate third-party license applies; do not represent this image as exclusively human-authored artwork.
+
+Four equal quadrants: top-left moss, top-right limestone, bottom-left slate, bottom-right oak. Runtime triplanar sampling uses inset quadrant bounds, anisotropic filtering and a restrained pigment blend. Procedural fine relief and variable roughness complement the albedo. The real meshes, bevels, direct shadows, GTAO and screen-space diffuse bounce remain responsible for the 3D lighting.
+
+The atlas is loaded once per scene and explicitly disposed. Portable JSON meshes retain their procedural surface tags. After ObjectLoader loading, call `restoreDioramaSurfaces(asset)` and `bindDioramaAtlas(asset, atlasTexture)` from `lib/three/surface-material.ts`; set the atlas color space to `SRGBColorSpace`.
+
+## Final generation prompt
+
+Use case: stylized-concept. Asset type: one square 2x2 game material texture atlas, 2048x2048. Create production-quality hand-painted fantasy diorama surface ALBEDO textures. Exact layout: four equal square quadrants with hard boundaries at precisely 50 percent horizontal and vertical, NO gaps, NO margins, NO text or labels. TOP LEFT: golden olive moss earth surface (#81951a), broad smooth moss pads interrupted by small angular flecks and sparse dark organic fissures, sculpted painterly fantasy look, not realistic grass blades. TOP RIGHT: warm light limestone (#b9a88d), subtle warm mineral mottling, very fine pores, sparse small worn chips and hairline cracks, mostly quiet readable stone; no tiles or brick grid. BOTTOM LEFT: dark cool slate rock (#55515b), broad mineral planes, restrained thin fracture veins and warm-grey weathering; no brick grid. BOTTOM RIGHT: rich warm oak timber (#98632e), hand-painted long horizontal flowing wood grain and occasional understated knots, no plank seams or nails. Every quadrant must be its own fully filled continuous seamless material patch, viewed exactly orthographically from directly above, flat albedo with no directional illumination, no cast shadows, no perspective, no object outlines, no bevel frame around quadrants. Match the polished chunky stylized fantasy-game material language, clean broad forms and restrained small detail, never photoreal grit or watercolor. This atlas will be texture-mapped onto actual beveled 3D models and lit in real time, it is not a mockup or scene illustration.

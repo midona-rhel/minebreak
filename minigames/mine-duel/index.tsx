@@ -18,7 +18,8 @@ function worldHitbox(fighter: Fighter, move: MoveKey) {
   return { left: Math.min(...points.map((point) => point.x)), right: Math.max(...points.map((point) => point.x)), bottom: Math.min(...points.map((point) => point.y)), top: Math.max(...points.map((point) => point.y)) };
 }
 
-export default function MineDuel({ player, complete }: MinigameProps) {
+export default function MineDuel({ context, complete }: MinigameProps) {
+  const player = { currentHp: context.player.health, maxHp: context.player.maxHealth };
   const game = useRef<{ player: Fighter; mine: Fighter; projectiles: Projectile[]; cpuDelay: number; ended: boolean }>({
     player: { x: 27, hp: player.currentHp * 100, action: 0, stun: 0, block: false, connected: false, invincible: false, facing: 1, jump: 0, jumpVelocity: 0, jumpDirection: 0 },
     mine: { x: 73, hp: 500, action: 0, stun: 0, block: false, connected: false, invincible: false, facing: -1, jump: 0, jumpVelocity: 0, jumpDirection: 0 }, projectiles: [], cpuDelay: 45, ended: false,
@@ -33,8 +34,10 @@ export default function MineDuel({ player, complete }: MinigameProps) {
   const finish = useCallback((outcome: 'success' | 'failure', hp: number) => {
     if (game.current.ended) return;
     game.current.ended = true;
-    complete({ outcome, damageTaken: (player.currentHp * 100 - hp) / 100 });
-  }, [complete, player.currentHp]);
+    const reportedDamage = Math.max(0, Math.min(player.currentHp, Math.ceil((player.currentHp * 100 - hp) / 100)));
+    const damage = Math.max(0, reportedDamage - context.player.upgrades.armor);
+    complete({ outcome, playerStats: { health: player.currentHp - damage } });
+  }, [complete, player.currentHp, context.player.upgrades.armor]);
 
   useEffect(() => {
     const down = (event: KeyboardEvent) => {

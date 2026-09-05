@@ -1,5 +1,8 @@
 # dependencies
 /node_modules
+/.npm-cache/
+/.pnpm-store/
+*.tsbuildinfo
 /.pnp
 .pnp.*
 .yarn/*

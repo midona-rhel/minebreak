@@ -13,7 +13,7 @@ class EncounterBoundary extends Component<{ children: ReactNode; cancel: () => v
 }
 
 /** Key by run/floor/cell so each launch gets its own completion guard. */
-export default function EncounterHost({ definition, context, player, complete, cancel }: MinigameProps & { definition?: MinigameDefinition }) {
+export default function EncounterHost({ definition, context, complete, cancel }: MinigameProps & { definition?: MinigameDefinition }) {
   const settled = useRef(false);
   const active = useRef(true);
   useEffect(() => {
@@ -27,14 +27,13 @@ export default function EncounterHost({ definition, context, player, complete, c
   };
   const props: MinigameProps = {
     context,
-    player,
     complete: result => {
       if (result?.outcome === 'success' || result?.outcome === 'failure') once(() => complete(result));
     },
     cancel: () => once(cancel),
   };
   const Game = definition?.Component;
-  return <Dialog open onOpenChange={() => {}}><DialogContent className="encounter" showCloseButton={false}>
+  return <Dialog open onOpenChange={open => { if (!open && definition?.id !== 'mine-duel') props.cancel(); }}><DialogContent className={`encounter${(definition?.id === 'drillantsbattle' || definition?.id === 'mine-duel') ? ' encounter-arena' : ''}`} showCloseButton={false}>
     <DialogTitle>{definition?.title ?? 'Encounter harness'}</DialogTitle>
     <EncounterBoundary cancel={props.cancel}>
       {Game ? <Game {...props} /> : <>
@@ -45,5 +44,6 @@ export default function EncounterHost({ definition, context, player, complete, c
         </div>
       </>}
     </EncounterBoundary>
+    {definition?.id !== 'mine-duel' && <button className="harness-cancel" onClick={props.cancel}>Return to board</button>}
   </DialogContent></Dialog>;
 }
