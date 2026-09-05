@@ -21,17 +21,13 @@ function noise(seed: number) {
 }
 
 const levels: Record<Instrument, number> = {
-  recorder: 0.25,
+  recorder: 0.22,
   lute: 0.2,
   strings: 0.115,
   bass: 0.31,
-  sub: 0.48,
-  growl: 0.38,
-  kick: 0.65,
-  snare: 0.46,
-  hat: 0.048,
-  riser: 0.2,
-  impact: 0.28,
+  drum: 0.12,
+  brush: 0.026,
+  wood: 0.036,
   bell: 0.065,
 };
 const sends: Record<Instrument, number> = {
@@ -39,13 +35,9 @@ const sends: Record<Instrument, number> = {
   lute: 0.2,
   strings: 0.33,
   bass: 0.06,
-  sub: 0,
-  growl: 0.06,
-  kick: 0.02,
-  snare: 0.12,
-  hat: 0.08,
-  riser: 0.3,
-  impact: 0.28,
+  drum: 0.1,
+  brush: 0.14,
+  wood: 0.18,
   bell: 0.35,
 };
 
@@ -112,9 +104,6 @@ export function synthesizeNote(
     drift = 0,
     breath = 0,
     lowNoise = 0;
-  let filterOne = 0,
-    filterTwo = 0,
-    filtered = 0;
   const detune = 2 ** ((((seed % 7) - 3) * 0.8) / 1200);
   for (let i = 0; i < length; i++) {
     const t = i / sampleRate;
@@ -175,86 +164,24 @@ export function synthesizeNote(
           0.3 * Math.sin(TAU * frequency * 2 * t) * Math.exp(-t * 2.8) +
           0.14 * Math.sin(TAU * frequency * 3.01 * t) * Math.exp(-t * 4.6)) *
         smooth(t / 0.009);
-    } else if (instrument === 'sub') {
-      phase += (TAU * frequency) / sampleRate;
-      value =
-        (Math.sin(phase) + 0.09 * Math.sin(phase * 2)) *
-        smooth(t / 0.035) *
-        release;
-    } else if (instrument === 'growl') {
-      // Authored rhythmic filter motion over an overdriven harmonic source.
-      // A stable TPT state-variable filter and 2x oscillator/filter rate keep
-      // the bass weight and vowel motion without a brittle unfiltered saw.
-      const movement = 0.5 + 0.5 * Math.cos(TAU * (event.wobble ?? 4.8) * t);
-      const cutoff = Math.min(sampleRate * 0.15, 170 + 2350 * movement ** 2);
-      const g = Math.tan((Math.PI * cutoff) / (sampleRate * 2));
-      const k = 0.72,
-        a = 1 / (1 + g * (g + k));
-      for (let oversample = 0; oversample < 2; oversample++) {
-        phase += (TAU * frequency) / (sampleRate * 2);
-        const osc =
-          Math.sin(phase) +
-          0.52 * Math.sin(phase * 2 + 0.18) +
-          0.3 * Math.sin(phase * 3) +
-          0.2 * Math.sin(phase * 4) +
-          0.12 * Math.sin(phase * 5 + 0.1) +
-          0.07 * Math.sin(phase * 6);
-        const input = Math.tanh(osc * 3.2);
-        const band = a * (filterOne + g * (input - filterTwo));
-        const low = filterTwo + g * band;
-        filterOne = 2 * band - filterOne;
-        filterTwo = 2 * low - filterTwo;
-        filtered += (Math.tanh(low * 1.8 + band * 0.5) - filtered) * 0.3;
-      }
-      value = filtered * (0.6 + 0.4 * movement) * smooth(t / 0.026) * release;
-    } else if (instrument === 'kick') {
-      phase += (TAU * (44 + 115 * Math.exp(-t * 42))) / sampleRate;
-      const input = random();
-      lowNoise += (input - lowNoise) * 0.3;
-      value =
-        (Math.tanh(Math.sin(phase) * 1.6) * Math.exp(-t * 11) +
-          (input - lowNoise) * 0.16 * Math.exp(-t * 160)) *
-        smooth(t / 0.002);
-    } else if (instrument === 'snare') {
-      const input = random();
-      lowNoise += (input - lowNoise) * 0.42;
-      breath += (lowNoise - breath) * 0.04;
-      const burst =
-        Math.exp(-t * 19) +
-        (t > 0.012 ? 0.45 * Math.exp(-(t - 0.012) * 26) : 0) +
-        (t > 0.026 ? 0.28 * Math.exp(-(t - 0.026) * 30) : 0);
-      const body =
-        Math.sin(TAU * 185 * 2 ** ((event.midi - 50) / 24) * t) *
-          Math.exp(-t * 23) +
-        0.4 * Math.sin(TAU * 330 * t) * Math.exp(-t * 32);
-      value =
-        ((lowNoise - breath) * burst * 1.7 + body * 0.55) * smooth(t / 0.002);
-    } else if (instrument === 'hat') {
-      const input = random();
-      lowNoise += (input - lowNoise) * 0.52;
-      breath += (lowNoise - breath) * 0.13;
-      value =
-        (lowNoise - breath) *
-        Math.exp(-t / Math.max(0.025, duration * 0.3)) *
-        smooth(t / 0.003);
-    } else if (instrument === 'riser') {
-      const progress = clamp(t / duration, 0, 1);
-      const input = random();
-      lowNoise += (input - lowNoise) * (0.035 + progress ** 2 * 0.52);
-      breath += (lowNoise - breath) * 0.025;
-      value =
-        (lowNoise - breath) *
-        progress ** 1.3 *
-        (0.76 + 0.24 * Math.sin(TAU * (2 + progress * 14) * t)) *
-        smooth(t / 0.2) *
-        smooth((duration - t) / 0.08);
-    } else if (instrument === 'impact') {
+    } else if (instrument === 'drum') {
+      phase += (TAU * (84 + 48 * Math.exp(-t * 34))) / sampleRate;
       lowNoise += (random() - lowNoise) * 0.12;
-      phase += (TAU * (38 + 40 * Math.exp(-t * 9))) / sampleRate;
       value =
-        (lowNoise * 0.75 + Math.sin(phase) * 0.6) *
-        Math.exp(-t * 3.4) *
+        (Math.sin(phase) * Math.exp(-t * 16) +
+          0.32 * Math.sin(phase * 1.59) * Math.exp(-t * 29) +
+          lowNoise * Math.exp(-t * 55) * 0.18) *
         smooth(t / 0.003);
+    } else if (instrument === 'brush') {
+      const input = random();
+      lowNoise += (input - lowNoise) * 0.28;
+      breath += (lowNoise - breath) * 0.055;
+      value = (lowNoise - breath) * Math.exp(-t * 19) * smooth(t / 0.009);
+    } else {
+      value =
+        (Math.sin(TAU * 790 * t) + 0.35 * Math.sin(TAU * 1267 * t)) *
+        Math.exp(-t * 66) *
+        smooth(t / 0.002);
     }
     output[i] = value * Math.max(0, end) * event.velocity * levels[instrument];
   }
