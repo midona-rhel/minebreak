@@ -64,10 +64,10 @@ export default function MusicPlayer() {
       : playing
         ? muted || volume === 0
           ? 'Playing silently'
-          : 'Harbor ensemble · 2 minute loop'
+          : 'Dubstep · 2 minute loop'
         : status.state === 'paused'
           ? 'Music paused'
-          : 'An original harbor tune');
+          : 'An original harbor bass track');
 
   const toggle = () => {
     if (active) {

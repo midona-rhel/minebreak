@@ -1,24 +1,26 @@
-/** Lanterns at Low Tide — an original chamber miniature, written for Minebreak.
- * Pitch and rhythm are authored below. No melody generation, borrowed tunes,
- * external samples, or reference MIDI are used. Time units in the notation are
- * eighth notes; a bar contains six. See docs/music.md for the form and harmony.
+/** Lanterns After Dark — an original Minebreak dubstep arrangement.
+ * Authored pitches and rhythms, half-time drums and two bass drops.
+ * No external samples, reference MIDI, or borrowed melody. Eighth-note units.
  */
-export const TITLE = 'Lanterns at Low Tide';
-export const DOTTED_QUARTER_BPM = 56;
-export const EIGHTH = 60 / (DOTTED_QUARTER_BPM * 3);
-export const BAR = 6 * EIGHTH;
-export const BAR_COUNT = 56;
+export const TITLE = 'Lanterns After Dark';
+export const QUARTER_BPM = 144;
+export const EIGHTH = 60 / (QUARTER_BPM * 2);
+export const BAR = 8 * EIGHTH;
+export const BAR_COUNT = 72;
 export const LOOP_SECONDS = 120;
-
 export type Instrument =
   | 'recorder'
   | 'lute'
   | 'strings'
   | 'bass'
-  | 'drum'
-  | 'brush'
-  | 'wood'
-  | 'bell';
+  | 'bell'
+  | 'sub'
+  | 'growl'
+  | 'kick'
+  | 'snare'
+  | 'hat'
+  | 'riser'
+  | 'impact';
 export type NoteEvent = Readonly<{
   instrument: Instrument;
   start: number;
@@ -27,17 +29,17 @@ export type NoteEvent = Readonly<{
   velocity: number;
   pan: number;
   seed: number;
+  wobble?: number;
 }>;
-
 export const SECTIONS = [
-  { name: 'Harbor lights', bar: 0, bars: 4 },
-  { name: 'Along the quay', bar: 4, bars: 12 },
-  { name: 'Sails in the morning', bar: 16, bars: 12 },
-  { name: 'The sheltered cove', bar: 28, bars: 8 },
-  { name: 'Homeward lanterns', bar: 36, bars: 12 },
-  { name: 'The turning tide', bar: 48, bars: 8 },
+  { name: 'Lantern signal', bar: 0, bars: 8 },
+  { name: 'Pressure rising', bar: 8, bars: 8 },
+  { name: 'First bass drop', bar: 16, bars: 16 },
+  { name: 'Suspended tide', bar: 32, bars: 8 },
+  { name: 'Second build', bar: 40, bars: 8 },
+  { name: 'Undertow drop', bar: 48, bars: 16 },
+  { name: 'Lantern return', bar: 64, bars: 8 },
 ] as const;
-
 export function pitch(name: string): number {
   const match = /^([A-G])([#b]?)([1-7])$/.exec(name);
   if (!match) throw new Error(`Invalid score pitch: ${name}`);
@@ -48,150 +50,60 @@ export function pitch(name: string): number {
     (match[2] === '#' ? 1 : match[2] === 'b' ? -1 : 0)
   );
 }
-
-type Harmony = { bass: string; fifth: string; notes: readonly string[] };
-const harmony: Record<string, Harmony> = {
-  G: { bass: 'G2', fifth: 'D3', notes: ['G3', 'D4', 'B3', 'G4'] },
-  GB: { bass: 'B2', fifth: 'D3', notes: ['G3', 'D4', 'B3', 'G4'] },
-  GD: { bass: 'D3', fifth: 'G2', notes: ['G3', 'D4', 'B3', 'G4'] },
-  D: { bass: 'D3', fifth: 'A2', notes: ['A3', 'D4', 'F#4', 'A4'] },
-  DF: { bass: 'F#2', fifth: 'A2', notes: ['A3', 'D4', 'F#4', 'A4'] },
-  Ds: { bass: 'D3', fifth: 'A2', notes: ['A3', 'D4', 'G4', 'A4'] },
-  C: { bass: 'C3', fifth: 'G2', notes: ['G3', 'E4', 'C4', 'G4'] },
-  CE: { bass: 'E2', fifth: 'G2', notes: ['G3', 'E4', 'C4', 'G4'] },
-  Am: { bass: 'A2', fifth: 'E3', notes: ['A3', 'E4', 'C4', 'G4'] },
-  Em: { bass: 'E2', fifth: 'B2', notes: ['G3', 'E4', 'B3', 'G4'] },
-  Bm: { bass: 'B2', fifth: 'F#3', notes: ['F#3', 'D4', 'B3', 'F#4'] },
-  B7: { bass: 'B2', fifth: 'F#3', notes: ['A3', 'D#4', 'B3', 'F#4'] },
+const HARMONY: Record<string, { bass: string; notes: readonly string[] }> = {
+  Em: { bass: 'E2', notes: ['E3', 'B3', 'G4', 'B4'] },
+  Bm: { bass: 'B2', notes: ['F#3', 'B3', 'D4', 'F#4'] },
+  C: { bass: 'C3', notes: ['G3', 'C4', 'E4', 'G4'] },
+  D: { bass: 'D3', notes: ['A3', 'D4', 'F#4', 'A4'] },
+  Am: { bass: 'A2', notes: ['E3', 'A3', 'C4', 'E4'] },
+  Ds: { bass: 'D3', notes: ['A3', 'D4', 'G4', 'A4'] },
+  B7: { bass: 'B2', notes: ['F#3', 'A3', 'D#4', 'F#4'] },
 };
-
-// Each row is one section. Inversions keep the bass moving by step through
-// G–F#–E and C–B–A; suspended dominants leave room for the breath at cadences.
-export const CHORDS = [
-  'G',
-  'C',
-  'GD',
-  'D',
-  'G',
-  'DF',
+const PROGRESSION = ['Em', 'Bm', 'C', 'D', 'Em', 'C', 'Am', 'D'];
+const DROP = [
+  'Em',
   'Em',
   'C',
-  'G',
-  'Am',
-  'Ds',
   'D',
   'Em',
-  'C',
-  'Ds',
-  'G',
-  'C',
-  'GB',
-  'Am',
-  'D',
-  'G',
-  'Bm',
-  'C',
-  'D',
   'Em',
   'Am',
-  'Ds',
   'D',
   'Em',
-  'Bm',
+  'Em',
   'C',
-  'G',
+  'D',
+  'Em',
+  'C',
   'Am',
   'B7',
+];
+export const CHORDS = [
+  ...PROGRESSION,
+  ...PROGRESSION,
+  ...DROP,
+  ...PROGRESSION,
+  ...PROGRESSION,
+  ...DROP,
   'Em',
-  'D',
-  'G',
-  'DF',
-  'Em',
+  'Bm',
   'C',
-  'G',
-  'Am',
-  'Ds',
   'D',
   'Em',
-  'C',
-  'Ds',
-  'G',
-  'C',
-  'GB',
-  'Am',
-  'D',
-  'G',
   'C',
   'Ds',
-  'D',
-] as const;
-
-// A 12-bar theme: two four-bar questions, then a softer four-bar answer.
-// '-' is a written rest, including breaths; numbers are eighth-note lengths.
+  'B7',
+];
 export const THEME = [
-  'D5:1 G5:2 B5:1 A5:1 G5:1',
-  'F#5:2 E5:1 D5:2 -:1',
-  'E5:1 G5:1 B5:2 A5:1 G5:1',
-  'E5:3 D5:1 E5:1 -:1',
-  'G5:2 D5:1 B4:2 D5:1',
-  'E5:2 G5:1 A5:2 -:1',
-  'G5:2 E5:1 D5:2 A4:1',
-  'F#5:3 -:2 D5:1',
-  'E5:2 G5:1 B5:1 A5:1 G5:1',
-  'E5:2 D5:1 C5:2 E5:1',
-  'G5:2 A5:1 D5:2 F#5:1',
-  'G5:4 -:2',
+  'B4:1 E5:2 G5:1 F#5:1 E5:1 D5:2',
+  'B4:2 D5:1 F#5:1 E5:2 -:2',
+  'G5:2 E5:1 D5:1 C5:2 E5:2',
+  'F#5:2 A5:1 F#5:1 D5:2 -:2',
+  'B4:1 E5:2 G5:1 B5:2 G5:2',
+  'E5:2 G5:1 E5:1 C5:2 -:2',
+  'E5:1 A5:1 G5:2 E5:1 C5:1 B4:2',
+  'D5:2 E5:1 F#5:1 A5:2 -:2',
 ] as const;
-
-const SAILS = [
-  'G5:1 C6:2 B5:1 G5:1 E5:1',
-  'D5:2 G5:1 B5:2 -:1',
-  'A5:1 G5:1 E5:2 C5:1 E5:1',
-  'F#5:3 A5:2 -:1',
-  'B5:2 A5:1 G5:1 D5:1 G5:1',
-  'F#5:2 D5:1 B4:2 -:1',
-  'E5:1 G5:2 C6:1 B5:1 G5:1',
-  'A5:3 F#5:2 -:1',
-  'G5:2 B5:1 E6:1 D6:1 B5:1',
-  'C6:2 B5:1 A5:2 G5:1',
-  'G5:3 E5:1 D5:1 -:1',
-  'F#5:3 -:3',
-];
-const COVE = [
-  'B4:3 E5:2 -:1',
-  'F#5:2 D5:1 B4:2 -:1',
-  'C5:2 E5:1 G5:2 E5:1',
-  'D5:4 -:2',
-  'E5:2 C5:1 A4:2 C5:1',
-  'F#5:2 D#5:1 B4:2 -:1',
-  'E5:3 B4:2 -:1',
-  'F#5:2 E5:1 D5:2 -:1',
-];
-const RETURN = [
-  THEME[0],
-  THEME[1],
-  'E5:1 G5:1 B5:1 D6:1 B5:1 G5:1',
-  'E5:3 G5:1 E5:1 -:1',
-  THEME[4],
-  THEME[5],
-  'G5:2 A5:1 D6:2 A5:1',
-  'F#5:3 -:1 A5:1 F#5:1',
-  'G5:2 B5:1 E6:1 D6:1 B5:1',
-  'C6:2 B5:1 G5:2 E5:1',
-  'G5:2 A5:1 D5:2 F#5:1',
-  'G5:4 -:2',
-];
-const TIDE = [
-  'G5:2 E5:1 C5:2 -:1',
-  'D5:2 G5:1 B4:2 -:1',
-  'C5:2 E5:1 A4:2 C5:1',
-  'D5:4 -:2',
-  'B4:2 D5:1 G5:2 -:1',
-  'E5:3 D5:2 -:1',
-  'G5:2 E5:1 D5:2 -:1',
-  'F#5:3 D5:2 -:1',
-];
-
 export function parseBar(notation: string) {
   let eighth = 0;
   const notes = notation.split(' ').map((token) => {
@@ -203,10 +115,41 @@ export function parseBar(notation: string) {
     eighth += duration;
     return note;
   });
-  if (eighth !== 6) throw new Error(`Bar has ${eighth} eighths: ${notation}`);
+  if (eighth !== 8) throw new Error(`Bar has ${eighth} eighths: ${notation}`);
   return notes;
 }
-
+// Four written call/response bass rhythms. Last value: filter cycles/quarter.
+const BASS_PHRASES = [
+  [
+    [0, 3.2, 0, 2],
+    [4.5, 1.15, 0, 4],
+    [6, 1.65, 7, 1],
+  ],
+  [
+    [0, 1.55, 0, 1],
+    [2, 1.5, 12, 2],
+    [4.5, 1.05, 0, 2],
+    [6, 1.65, 0, 4],
+  ],
+  [
+    [0, 2.75, 0, 1.5],
+    [3, 0.62, 7, 4],
+    [4.5, 3.1, 0, 2],
+  ],
+  [
+    [0, 1.6, 0, 2],
+    [2, 1.55, 0, 2],
+    [4.5, 0.85, 0, 4],
+    [5.5, 0.85, 12, 4],
+    [6.5, 1.12, 0, 2],
+  ],
+] as const;
+const KICKS = [
+  [0, 3],
+  [0, 2.5, 6.5],
+  [0, 3.5],
+  [0, 2.5, 5.5],
+];
 export function createScore(): NoteEvent[] {
   const events: NoteEvent[] = [];
   const add = (
@@ -216,8 +159,9 @@ export function createScore(): NoteEvent[] {
     duration: number,
     midi: number,
     velocity: number,
-    pan: number,
+    pan = 0,
     offset = 0,
+    wobble?: number,
   ) => {
     events.push({
       instrument,
@@ -227,141 +171,168 @@ export function createScore(): NoteEvent[] {
       velocity,
       pan,
       seed: events.length + 17,
+      wobble,
     });
   };
-  const phrase = (
-    bars: readonly string[],
-    first: number,
-    loudness: number,
-    instrument: Instrument = 'recorder',
-  ) => {
+  const phrase = (bars: readonly string[], first: number, loudness: number) => {
     bars.forEach((notation, index) => {
-      const bar = first + index;
-      // Four-bar dynamic arches, controlled articulation, up to 12ms of rubato.
-      const shape = [0.91, 1, 1.04, 0.88][index % 4];
       parseBar(notation).forEach((note, n) => {
         if (note.midi === null) return;
-        const accent = note.eighth === 0 ? 1.03 : note.eighth === 3 ? 1 : 0.93;
-        const delay = [0.008, 0.012, 0.004, 0.01][(index + n) % 4];
-        const gate = note.duration >= 3 ? 0.92 : 0.86;
         add(
-          instrument,
-          bar,
+          'recorder',
+          first + index,
           note.eighth,
-          note.duration * gate,
+          note.duration * (note.duration >= 3 ? 0.92 : 0.84),
           note.midi,
-          loudness * shape * accent,
-          instrument === 'recorder' ? -0.08 : 0.28,
-          delay,
+          loudness * [0.92, 1, 1.04, 0.87][index % 4] * (n === 0 ? 1 : 0.94),
+          -0.1,
+          0.007 + (n % 3) * 0.003,
         );
       });
     });
   };
-  phrase(['-:3 D5:1 G5:1 A5:1'], 3, 0.48);
-  phrase(THEME, 4, 0.73);
-  phrase(SAILS, 16, 0.8);
-  phrase(COVE, 28, 0.58);
-  phrase(RETURN, 36, 0.86);
-  phrase(TIDE, 48, 0.63);
-
+  phrase(THEME, 0, 0.57);
+  phrase(THEME.slice(0, 6), 8, 0.58);
+  phrase(
+    [
+      'B4:3 E5:3 -:2',
+      'F#5:3 D5:3 -:2',
+      'E5:3 G5:3 -:2',
+      'F#5:4 -:4',
+      'B4:3 E5:3 -:2',
+      'G5:3 E5:3 -:2',
+      'E5:2 C5:2 A4:2 -:2',
+      'F#5:4 -:4',
+    ],
+    32,
+    0.48,
+  );
+  phrase(THEME.slice(0, 6), 40, 0.64);
+  phrase(
+    [...THEME.slice(0, 6), 'G5:2 E5:2 D5:2 -:2', 'F#5:2 D#5:2 B4:2 -:2'],
+    64,
+    0.51,
+  );
+  // Short melodic answers leave the bass drop clear.
+  for (const bar of [19, 23, 27, 51, 55, 59])
+    phrase(['-:4 B5:1 G5:1 E5:1 -:1'], bar, bar >= 48 ? 0.7 : 0.62);
   CHORDS.forEach((symbol, bar) => {
-    const chord = harmony[symbol];
-    const isCove = bar >= 28 && bar < 36;
-    const energy =
-      bar < 4
-        ? 0.64
-        : bar < 16
-          ? 0.8
-          : bar < 28
-            ? 0.9
-            : isCove
-              ? 0.59
-              : bar < 48
-                ? 1
-                : 0.74 - (bar - 48) * 0.014;
-    // Thumb and fingers: a voiced pattern, never randomly selected pitches.
-    const pattern = isCove || bar < 2 ? [0, 2, 1, 3] : [0, 1, 2, 3, 1, 2];
-    const places = pattern.length === 4 ? [0, 2, 3, 5] : [0, 1, 2, 3, 4, 5];
-    pattern.forEach((tone, i) => {
-      const beat = places[i];
-      const strength = [0.72, 0.46, 0.54, 0.64, 0.46, 0.5][beat];
-      add(
-        'lute',
-        bar,
-        beat,
-        2.5,
-        pitch(chord.notes[tone]),
-        strength * energy,
-        -0.36,
-        [0, 0.009, 0.016, 0.003, 0.014, 0.019][beat],
-      );
-    });
-    add(
-      'bass',
-      bar,
-      0,
-      isCove ? 5.4 : 2.8,
-      pitch(chord.bass),
-      0.7 * energy,
-      0,
-      0.003,
-    );
-    if (!isCove && bar > 1)
-      add(
-        'bass',
-        bar,
-        3,
-        2.7,
-        pitch(bar % 4 === 3 ? chord.bass : chord.fifth),
-        0.53 * energy,
-        0,
-        0.009,
-      );
-
-    // A soft, two-part string bed enters after the introduction. Open texture
-    // in the cove leaves space for the lower recorder register.
-    if (bar >= 4 && (bar < 52 || bar % 2 === 0)) {
-      [0, 2].forEach((tone, i) =>
+    const chord = HARMONY[symbol];
+    const drop = (bar >= 16 && bar < 32) || (bar >= 48 && bar < 64);
+    const build = (bar >= 8 && bar < 16) || (bar >= 40 && bar < 48);
+    const relative = bar % 8;
+    const lastBuild = bar === 15 || bar === 47;
+    const secondDrop = bar >= 48 && bar < 64;
+    const energy = drop
+      ? secondDrop
+        ? 1
+        : 0.92
+      : build
+        ? 0.58 + relative * 0.035
+        : bar < 8
+          ? 0.55
+          : 0.46;
+    if (!drop) {
+      [0, 2, 4, 6].forEach((beat, i) => {
+        if (lastBuild && beat >= 4) return;
         add(
-          'strings',
+          'lute',
           bar,
-          0,
-          5.75,
-          pitch(chord.notes[tone]),
-          (isCove ? 0.32 : 0.25) * energy,
-          i === 0 ? 0.22 : 0.42,
-          0.015 + i * 0.013,
-        ),
+          beat,
+          2.2,
+          pitch(chord.notes[[0, 2, 1, 3][i]]),
+          energy * (i % 2 ? 0.38 : 0.58),
+          -0.35,
+          i * 0.004,
+        );
+      });
+      if (!lastBuild) {
+        add('bass', bar, 0, 7.4, pitch(chord.bass), energy * 0.65);
+        [0, 2].forEach((tone, i) =>
+          add(
+            'strings',
+            bar,
+            0,
+            7.2,
+            pitch(chord.notes[tone]),
+            energy * 0.3,
+            i ? 0.4 : -0.25,
+          ),
+        );
+      }
+      if (bar < 8 || bar >= 64) {
+        if (bar % 2 === 0) add('kick', bar, 0, 1.3, 36, 0.3);
+        add('hat', bar, 4, 0.5, 70, 0.28, 0.3);
+      }
+    }
+    if (build) {
+      const spacing =
+        relative < 4 ? 2 : relative < 6 ? 1 : relative === 6 ? 0.5 : 0.25;
+      for (let beat = 0; beat < (lastBuild ? 6 : 8); beat += spacing)
+        add(
+          'snare',
+          bar,
+          beat,
+          0.7,
+          55 + relative,
+          (0.22 + relative * 0.04) * (beat % 2 === 0 ? 1 : 0.75),
+          beat % 1 ? 0.12 : -0.12,
+        );
+      if (relative < 6)
+        [0, 2, 4, 6].forEach((beat) =>
+          add('kick', bar, beat, 1.2, 36, 0.4 + relative * 0.035),
+        );
+    }
+    if (drop) {
+      const root = pitch(chord.bass);
+      BASS_PHRASES[(bar - 16) % 4].forEach(
+        ([beat, length, semitones, rate]) => {
+          add(
+            'growl',
+            bar,
+            beat,
+            length,
+            root + semitones,
+            energy * 0.92,
+            0,
+            0.015,
+            ((rate * QUARTER_BPM) / 60) *
+              (secondDrop && bar % 4 === 2 ? 1.5 : 1),
+          );
+          add('sub', bar, beat, length, root - 12, energy * 0.83, 0, 0.015);
+        },
       );
-    }
-    // Frame drum, soft brushed jingles and a wooden rim. Drop the beat for
-    // the cove and pull percussion out of the final two bars.
-    if (bar >= 4 && !isCove && bar < 54) {
-      add('drum', bar, 0, 0.75, 48, 0.47 * energy, -0.1);
-      if (bar % 4 !== 3)
-        add('drum', bar, 3, 0.6, 48, 0.3 * energy, -0.1, 0.012);
-      add('brush', bar, 3, 0.7, 72, 0.28 * energy, 0.45, 0.013);
-      if (bar % 2 === 1)
-        add('wood', bar, 5, 0.35, 72, 0.24 * energy, -0.48, 0.018);
-      if (bar >= 36 && bar < 44)
-        add('brush', bar, 1.5, 0.5, 72, 0.15 * energy, 0.45, 0.01);
+      KICKS[bar % 4].forEach((beat, i) =>
+        add('kick', bar, beat, 1.6, 36, energy * (i ? 0.83 : 1)),
+      );
+      add('snare', bar, 4, 1.6, 50, energy, 0);
+      for (let beat = 0; beat < 8; beat++)
+        add(
+          'hat',
+          bar,
+          beat,
+          beat % 2 ? 0.8 : 0.35,
+          70,
+          energy * (beat % 2 ? 0.56 : 0.3),
+          beat % 2 ? 0.34 : -0.25,
+          beat % 2 ? 0.009 : 0,
+        );
+      if (secondDrop && bar % 4 === 3)
+        [6, 6.5, 7, 7.5].forEach((beat) =>
+          add('snare', bar, beat, 0.6, 52, 0.26 + (beat - 6) * 0.08, 0.1),
+        );
     }
   });
-
-  // A separately written lute answer between recorder breaths. It returns
-  // with a small change when the main theme comes home.
-  phrase(['-:2 B4:1 D5:1 E5:1 D5:1', '-:3 C5:1 B4:1 G4:1'], 10, 0.32, 'lute');
-  phrase(['-:3 G4:1 B4:1 D5:1', '-:2 E5:1 D5:1 C5:1 A4:1'], 22, 0.35, 'lute');
-  phrase(['-:2 B4:1 D5:1 G5:1 D5:1', '-:3 C5:1 B4:1 G4:1'], 42, 0.39, 'lute');
-  // Bells mark only the larger structural arrivals; their tails wrap naturally.
-  [
-    [0, 'G5'],
-    [16, 'C6'],
-    [28, 'E5'],
-    [36, 'G5'],
-    [48, 'C6'],
-  ].forEach(([bar, note]) => {
-    add('bell', Number(bar), 0, 4, pitch(String(note)), 0.2, 0.38);
-  });
+  // A half-beat vacuum follows each rising sweep before the downbeat lands.
+  add('riser', 8, 0, 62, 48, 0.76);
+  add('riser', 40, 0, 62, 48, 0.9);
+  add('impact', 16, 0, 6, 28, 0.85);
+  add('impact', 48, 0, 6, 28, 1);
+  for (const [bar, note] of [
+    [0, 'E5'],
+    [32, 'E5'],
+    [64, 'E5'],
+  ] as const)
+    add('bell', bar, 0, 4, pitch(note), 0.2, 0.4);
   return events.sort((a, b) => a.start - b.start || a.seed - b.seed);
 }
