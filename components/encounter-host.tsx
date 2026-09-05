@@ -33,7 +33,7 @@ export default function EncounterHost({ definition, context, complete, cancel }:
     cancel: () => once(cancel),
   };
   const Game = definition?.Component;
-  return <Dialog open onOpenChange={open => { if (!open) props.cancel(); }}><DialogContent className="encounter" showCloseButton={false}>
+  return <Dialog open onOpenChange={open => { if (!open) props.cancel(); }}><DialogContent className={`encounter${definition?.id === 'drillantsbattle' ? ' encounter-arena' : ''}`} showCloseButton={false}>
     <DialogTitle>{definition?.title ?? 'Encounter harness'}</DialogTitle>
     <EncounterBoundary cancel={props.cancel}>
       {Game ? <Game {...props} /> : <>
