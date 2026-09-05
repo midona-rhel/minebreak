@@ -134,6 +134,8 @@ body {
 }
 
 /* Minebreak harness */
+.encounter.encounter-arena { width:min(1000px,calc(100vw - 24px)); max-width:1000px; max-height:calc(100dvh - 24px); overflow-y:auto; padding:16px; gap:10px; }
+.encounter.encounter-arena > h2 { font-size:1.1rem; margin:0; }
 .harness-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
 .harness-actions button, .harness-cancel { padding: 12px 16px; border: 1px solid #64ead7; border-radius: 10px; background: #10252b; color: #edf8f7; cursor: pointer; }
 .harness-cancel { margin-top: 18px; }
