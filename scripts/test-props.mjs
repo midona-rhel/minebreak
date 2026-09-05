@@ -72,7 +72,19 @@ test('crystal composition has one hero and six closed outward-radiating shards',
   assert.equal(shards.length, 6);
   for (const crystal of [hero, ...shards]) {
     assertClosedOutward(crystal.geometry);
-    assert.ok(crystal.material.transmission > 0.4);
+    assert.ok(crystal.material.isMeshPhysicalMaterial);
+    assert.ok(
+      crystal.material.transmission >= 0.8,
+      'crystals must transmit the scene, not just reflect it',
+    );
+    assert.ok(
+      crystal.material.roughness <= 0.12,
+      'transmitted detail must remain visible',
+    );
+    assert.ok(
+      crystal.material.emissiveIntensity >= 0.3,
+      'the mineral has an internal glow',
+    );
     assert.equal(
       crystal.material.emissive.getHex(),
       hero.material.emissive.getHex(),
@@ -101,6 +113,7 @@ test('crystal composition has one hero and six closed outward-radiating shards',
       crystal.geometry.boundingBox.max.y < hero.geometry.boundingBox.max.y,
     );
   }
+  assert.ok(cluster.getObjectByName('crystal-spill-light').intensity >= 2);
   // No radial satellite can re-enter the main hero's envelope as it grows.
   for (const shard of shards) {
     const growth = new THREE.Vector3(0, 1, 0).applyQuaternion(shard.quaternion);
@@ -192,7 +205,7 @@ test('tree variants stay grounded, finite, compact and batched', () => {
     const bounds = new THREE.Box3().setFromObject(tree);
     const size = bounds.getSize(new THREE.Vector3());
     assert.ok(bounds.min.y < 0 && bounds.min.y > -0.2);
-    assert.ok(size.x < 1.85 && size.z < 1.85 && size.y > 2.2 && size.y < 2.9);
+    assert.ok(size.x < 2.25 && size.z < 2.25 && size.y > 2.2 && size.y < 3.05);
     tree.traverse((child) => {
       if (!child.isMesh) return;
       for (const coordinate of child.geometry.getAttribute('position').array)

@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { applyDioramaSurface } from './surface-material.ts';
 
 export const palette = {
-  grass: 0x7a8c13,
+  grass: 0x81951a,
   grassLight: 0xa5b132,
-  stone: 0xbaaa88,
+  stone: 0xb9a88d,
   rock: 0x55515b,
   wood: 0x795032,
   flag: 0xe84829,
@@ -19,14 +20,16 @@ function random(seed: number) {
     return seed / 4294967296;
   };
 }
-const mat = (color: number, glow = 0) =>
-  new THREE.MeshStandardMaterial({
+const mat = (color: number, glow = 0) => {
+  const material = new THREE.MeshStandardMaterial({
     color,
     roughness: 0.88,
     flatShading: true,
     emissive: glow ? color : 0,
     emissiveIntensity: glow,
   });
+  return glow ? material : applyDioramaSurface(material);
+};
 function mesh(
   geometry: THREE.BufferGeometry,
   color: number,
@@ -51,11 +54,14 @@ function block(
   z = 0,
   r = 0.03,
 ) {
-  return mesh(new RoundedBoxGeometry(w, h, d, 1, r), color, x, y, z);
+  const result = mesh(new RoundedBoxGeometry(w, h, d, 2, r), color, x, y, z);
+  // Keep the bevel's authored normals rather than replacing them with triangle normals.
+  result.material.flatShading = false;
+  return result;
 }
 
 /** Merge opaque detailing into one vertex-colored draw call per reusable asset. */
-function bake(group: THREE.Group) {
+export function bake(group: THREE.Group) {
   group.updateMatrixWorld(true);
   const pieces: THREE.BufferGeometry[] = [],
     remove: THREE.Mesh[] = [];
@@ -105,6 +111,12 @@ function bake(group: THREE.Group) {
       }
       const material = mat(0xffffff);
       material.vertexColors = true;
+      material.flatShading = false;
+      material.userData.surfaceKind = /bridge|roots|tree/.test(group.name)
+        ? 3
+        : /cliff/.test(group.name)
+          ? 2
+          : 1;
       material.side = THREE.DoubleSide;
       const combined = new THREE.Mesh(merged, material);
       combined.castShadow = true;
@@ -128,12 +140,16 @@ function chippedSlab(
   const shape = new THREE.Shape();
   const points = [
     [-w / 2 + c, -d / 2],
+    [-w * 0.06, -d / 2 + 0.012 + r() * 0.014],
     [w / 2 - c, -d / 2],
     [w / 2, -d / 2 + c],
+    [w / 2 - 0.012 - r() * 0.014, d * 0.09],
     [w / 2, d / 2 - c],
     [w / 2 - c, d / 2],
+    [w * 0.13, d / 2 - 0.012 - r() * 0.014],
     [-w / 2 + c, d / 2],
     [-w / 2, d / 2 - c],
+    [-w / 2 + 0.012 + r() * 0.014, -d * 0.08],
     [-w / 2, -d / 2 + c],
   ];
   points.forEach(([x, z], i) => {
@@ -147,8 +163,8 @@ function chippedSlab(
     new THREE.ExtrudeGeometry(shape, {
       depth: h,
       bevelEnabled: true,
-      bevelThickness: 0.027,
-      bevelSize: 0.024,
+      bevelThickness: 0.04,
+      bevelSize: 0.04,
       bevelSegments: 1,
       steps: 1,
     }),
@@ -158,6 +174,23 @@ function chippedSlab(
     0,
   );
   o.rotation.x = -Math.PI / 2;
+  // A thin worn edge has a different pigment from the intact face. Geometry,
+  // normal response and exposed pale stone all contribute to its highlight.
+  const normals = o.geometry.getAttribute('normal');
+  const vertices = o.geometry.getAttribute('position');
+  const colors = new Float32Array(vertices.count * 3);
+  const baseColor = new THREE.Color(color);
+  for (let i = 0; i < vertices.count; i++) {
+    const up = normals.getZ(i);
+    const edge = up > 0.12 && up < 0.96;
+    const pigment = baseColor.clone();
+    if (edge) pigment.lerp(new THREE.Color(0xffe4a2), 0.19);
+    else if (up < 0.12) pigment.multiplyScalar(0.72);
+    pigment.toArray(colors, i * 3);
+  }
+  o.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  o.material.color.setHex(0xffffff);
+  o.material.vertexColors = true;
   return o;
 }
 function path(points: THREE.Vector3[], radius: number, color: number) {
@@ -298,10 +331,10 @@ export function createTile(covered = true, variant = 0) {
   const r = random(variant * 19 + 117);
   group.add(
     chippedSlab(
-      0.87,
-      0.87,
+      0.875,
+      0.875,
       covered ? 0.27 : 0.23,
-      covered ? 0x615235 : 0x87735d,
+      covered ? 0x66552d : 0x766a5c,
       variant + 3,
       -0.29,
     ),
@@ -311,23 +344,36 @@ export function createTile(covered = true, variant = 0) {
       0.875,
       0.875,
       covered ? 0.135 : 0.035,
-      covered ? palette.grass : palette.stone,
+      new THREE.Color(covered ? palette.grass : palette.stone)
+        .multiplyScalar(0.94 + r() * 0.1)
+        .getHex(),
       variant * 13 + 8,
       covered ? 0.015 : -0.04,
     ),
   );
   if (covered) {
-    for (let i = 0; i < 24; i++) {
+    // Broad low moss cushions, with small angular growth at their edges.
+    for (let i = 0; i < 3; i++) {
+      mossPatch(
+        group,
+        (r() - 0.5) * 0.5,
+        0.181,
+        (r() - 0.5) * 0.5,
+        0.13 + r() * 0.055,
+        [0x80911c, 0x899820, 0x798c1a][i],
+      );
+    }
+    for (let i = 0; i < 10; i++) {
       const x = (r() - 0.5) * 0.78,
         z = (r() - 0.5) * 0.78,
-        size = 0.025 + r() * 0.06;
+        size = 0.035 + r() * 0.065;
       mossPatch(
         group,
         x,
-        0.177 + size * 0.1,
+        0.195 + size * 0.1,
         z,
         size,
-        [0x869618, 0x9baa27, 0x708211, 0xb0b43b][i % 4],
+        [0x899923, 0x9fa82b, 0x687f19, 0xacb438][i % 4],
       );
     }
     for (let i = 0; i < 7; i++) {
@@ -340,16 +386,16 @@ export function createTile(covered = true, variant = 0) {
     for (let i = 0; i < 3; i++) {
       const a = r() * Math.PI * 2;
       const l = leaf(0.09, 0.025, 0xa3b33c);
-      l.position.set(Math.cos(a) * 0.32, 0.176, Math.sin(a) * 0.32);
+      l.position.set(Math.cos(a) * 0.32, 0.197, Math.sin(a) * 0.32);
       l.rotation.y = a;
       group.add(l);
     }
     for (let i = 0; i < 4; i++) {
       const stone = mesh(
         new THREE.DodecahedronGeometry(0.027, 0),
-        0xaca16c,
+        0x8b9250,
         (r() - 0.5) * 0.72,
-        0.184,
+        0.198,
         (r() - 0.5) * 0.72,
       );
       stone.scale.y = 0.45;
@@ -361,9 +407,9 @@ export function createTile(covered = true, variant = 0) {
       const a = (i * Math.PI) / 2;
       const crack = path(
         [
-          new THREE.Vector3(0.28, 0.023, 0.41),
-          new THREE.Vector3(0.26, 0.023, 0.34),
-          new THREE.Vector3(0.31, 0.023, 0.29),
+          new THREE.Vector3(0.28, 0.037, 0.41),
+          new THREE.Vector3(0.26, 0.037, 0.34),
+          new THREE.Vector3(0.31, 0.037, 0.29),
         ],
         0.007,
         0x80715c,
@@ -376,7 +422,7 @@ export function createTile(covered = true, variant = 0) {
       mossPatch(
         group,
         Math.cos(a) * 0.39,
-        0.021,
+        0.037,
         Math.sin(a) * 0.39,
         0.018,
         0xd3c5a4,
@@ -478,23 +524,27 @@ export function updateAssetAnimations(
   });
 }
 function crystalPrism(radius: number, height: number, color: number) {
-  const n = 6,
+  const n = 12,
     points: number[] = [],
     colors: number[] = [];
   const base = new THREE.Color(color);
-  const v = (i: number, y: number, r: number) =>
-    new THREE.Vector3(
-      Math.cos((i / n) * Math.PI * 2) * r,
+  const v = (i: number, y: number, r: number) => {
+    const corner = Math.floor(i / 2);
+    const a = (corner * Math.PI) / 3;
+    const adjacent = a + ((i % 2 === 0 ? -1 : 1) * Math.PI) / 3;
+    return new THREE.Vector3(
+      THREE.MathUtils.lerp(Math.cos(a), Math.cos(adjacent), 0.035) * r,
       y,
-      Math.sin((i / n) * Math.PI * 2) * r,
+      THREE.MathUtils.lerp(Math.sin(a), Math.sin(adjacent), 0.035) * r,
     );
+  };
   for (let i = 0; i < n; i++) {
     // A true hexagonal shaft and short faceted crown. Keeping the sides parallel
     // makes the silhouette read as a crystal rather than a lumpy cone.
     const a = v(i, 0, radius),
       b = v(i + 1, 0, radius),
-      c = v(i + 1, height * 0.78, radius),
-      d = v(i, height * 0.78, radius),
+      c = v(i + 1, height * 0.7, radius),
+      d = v(i, height * 0.7, radius),
       tip = new THREE.Vector3(radius * 0.06, height, -radius * 0.04);
     for (const triangle of [
       [a, d, b],
@@ -504,8 +554,14 @@ function crystalPrism(radius: number, height: number, color: number) {
     ]) {
       const tint = base
         .clone()
-        .lerp(new THREE.Color(0xffffff), 0.12)
-        .multiplyScalar([0.72, 0.9, 0.78, 1.08, 0.86, 1][i]);
+        .lerp(
+          new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.55),
+          triangle[1] === tip ? 0.35 : 0.025,
+        )
+        .multiplyScalar([0.45, 0.7, 0.58, 1.18, 0.82, 1.02][Math.floor(i / 2)]);
+      // The chamfer retains the mineral pigment. Lighting supplies its highlight;
+      // a pale painted strip reads as a white wireframe at gameplay distance.
+      if (i % 2 === 0) tint.lerp(base, 0.15);
       for (const p of triangle) {
         points.push(p.x, p.y, p.z);
         colors.push(tint.r, tint.g, tint.b);
@@ -523,22 +579,22 @@ function crystalPrism(radius: number, height: number, color: number) {
     color: 0xffffff,
     vertexColors: true,
     flatShading: true,
-    roughness: 0.16,
+    roughness: 0.09,
     metalness: 0,
-    transmission: 0.48,
-    thickness: radius * 2.5,
-    ior: 1.52,
+    transmission: 0.86,
+    thickness: radius * 3.8,
+    ior: 1.7,
     clearcoat: 1,
-    clearcoatRoughness: 0.07,
+    clearcoatRoughness: 0.1,
     attenuationColor: new THREE.Color(color).lerp(
       new THREE.Color(0xffffff),
-      0.35,
+      0.7,
     ),
-    attenuationDistance: 1.6,
-    dispersion: 0.35,
+    attenuationDistance: 2.6,
+    dispersion: 0.65,
     emissive: color,
-    emissiveIntensity: 0.36,
-    envMapIntensity: 1.35,
+    emissiveIntensity: 0.38,
+    envMapIntensity: 1.1,
   });
   const prism = new THREE.Mesh(geometry, material);
   prism.castShadow = true;
@@ -550,7 +606,7 @@ export function createCrystal(color = palette.crystal) {
   group.name = 'crystal-cluster';
   const r = random(541);
   const crystals = [
-    [0, 0, 1.78, 0.245, 0],
+    [0, 0, 1.78, 0.31, 0],
     [-0.42, 0.04, 1.12, 0.155, 0.28],
     [0.4, 0.16, 0.94, 0.145, 0.31],
     [-0.24, -0.39, 0.78, 0.125, 0.36],
@@ -605,11 +661,12 @@ export function createCrystal(color = palette.crystal) {
   }
   const glow = new THREE.PointLight(
     new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.22),
-    2.1,
     2.8,
+    3.3,
     2,
   );
-  glow.position.set(0, 0.55, 0);
+  glow.position.set(0, 0.4, 0);
+  glow.name = 'crystal-spill-light';
   group.add(glow);
   // A soft optical halo preserves readable glass facets instead of overexposing them.
   const aura = new THREE.Mesh(
@@ -622,7 +679,7 @@ export function createCrystal(color = palette.crystal) {
       vertexShader:
         'varying vec2 vUv; void main(){vUv=uv;vec4 center=modelViewMatrix*vec4(0.,.62,0.,1.);vec2 scale=vec2(length(modelMatrix[0].xyz),length(modelMatrix[1].xyz));center.xy+=position.xy*scale;gl_Position=projectionMatrix*center;}',
       fragmentShader:
-        'varying vec2 vUv;uniform vec3 tint;void main(){vec2 p=(vUv-.5)*2.;float a=exp(-dot(p,p)*4.6)*.09*(1.-smoothstep(.62,1.,length(p)));gl_FragColor=vec4(tint,a);}',
+        'varying vec2 vUv;uniform vec3 tint;void main(){vec2 p=(vUv-.5)*2.;float a=exp(-dot(p,p)*3.8)*.12*(1.-smoothstep(.62,1.,length(p)));gl_FragColor=vec4(tint,a);}',
     }),
   );
   aura.name = 'crystal-glow';
@@ -764,7 +821,7 @@ export function createPortal() {
   group.add(glow);
   return bake(group);
 }
-function fracturedRock(
+export function fracturedRock(
   w: number,
   h: number,
   d: number,
@@ -871,7 +928,15 @@ export function createMushroomPatch(variant = 0) {
     );
     group.add(stem);
     const cap = mesh(
-      new THREE.SphereGeometry(0.095 + r() * 0.055, 9, 5, 0, Math.PI * 2, 0, Math.PI * 0.55),
+      new THREE.SphereGeometry(
+        0.095 + r() * 0.055,
+        9,
+        5,
+        0,
+        Math.PI * 2,
+        0,
+        Math.PI * 0.55,
+      ),
       i % 3 === 0 ? 0x8f4ac1 : i % 2 ? 0xe99336 : 0xc65e3f,
       stem.position.x,
       height,
@@ -900,12 +965,15 @@ export function createRuneWaystone(variant = 0) {
   const runeMaterial = new THREE.MeshStandardMaterial({
     color: 0x6ffcf0,
     emissive: 0x22d6ca,
-    emissiveIntensity: 1.8,
+    emissiveIntensity: 0.8,
     roughness: 0.35,
   });
   const rune = new THREE.Group();
   rune.name = 'waystone-rune';
-  const vertical = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.48, 0.025), runeMaterial);
+  const vertical = new THREE.Mesh(
+    new THREE.BoxGeometry(0.055, 0.48, 0.025),
+    runeMaterial,
+  );
   vertical.position.set(0, 0.8, 0.225);
   vertical.rotation.z = -0.18;
   rune.add(vertical);
@@ -913,14 +981,17 @@ export function createRuneWaystone(variant = 0) {
     [-0.07, 0.89, -0.72],
     [0.07, 0.69, -0.72],
   ] as const) {
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.025), runeMaterial);
+    const arm = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, 0.22, 0.025),
+      runeMaterial,
+    );
     arm.position.set(x, y, 0.227);
     arm.rotation.z = rotation;
     rune.add(arm);
   }
   group.add(rune);
-  const light = new THREE.PointLight(0x35e8d9, 1.15, 2.3, 2);
-  light.position.set(0, 0.83, 0.34);
+  const light = new THREE.PointLight(0x35e8d9, 0.32, 2.3, 2);
+  light.position.set(0, 0.83, 0.65);
   group.add(light);
   return bake(group);
 }
@@ -960,104 +1031,146 @@ export function createRoots(variant = 0) {
   }
   return bake(group);
 }
-/** Compact sculpted tree: approximately 1.4 wide and 2.5 high, rooted at y=0. */
+/** Windswept crown grows toward local +Z; place that side toward the sea. */
 export function createTree(variant = 0) {
   const group = new THREE.Group();
   group.name = 'tree-mossbound';
   const r = random(variant * 151 + 901);
-  const lean = (r() - 0.5) * 0.16;
   const trunk = [
-    new THREE.Vector3(0, -0.02, 0),
-    new THREE.Vector3(-0.06, 0.35, 0.015),
-    new THREE.Vector3(lean, 0.84, -0.025),
-    new THREE.Vector3(lean + 0.07, 1.3, 0.03),
-    new THREE.Vector3(lean - 0.03, 1.83, 0),
+    new THREE.Vector3(0, -0.05, 0),
+    new THREE.Vector3(-0.07, 0.38, 0.03),
+    new THREE.Vector3(0.09, 0.91, 0.16),
+    new THREE.Vector3(0.02, 1.44, 0.38),
+    new THREE.Vector3(-0.16, 1.93, 0.58),
   ];
-  const trunkCurve = new THREE.CatmullRomCurve3(trunk);
-  group.add(createTaperedBranch(trunk, 0.17, 0.025, 0x695035));
-  // Buttress roots visibly continue from the trunk into the soil. Long cliff
-  // cascades are attached to this same origin by the scene composer.
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + 0.2;
+  group.add(createTaperedBranch(trunk, 0.23, 0.028, 0x60472e));
+  for (let i = 0; i < 5; i++) {
+    const a = (i * Math.PI * 2) / 5;
     group.add(
       createTaperedBranch(
         [
-          trunkCurve.getPointAt(0.08),
-          new THREE.Vector3(Math.cos(a) * 0.19, 0.025, Math.sin(a) * 0.19),
+          new THREE.Vector3(-0.02, 0.19, 0.01),
+          new THREE.Vector3(Math.cos(a) * 0.22, 0.015, Math.sin(a) * 0.22),
           new THREE.Vector3(
-            Math.cos(a + 0.22) * 0.38,
-            -0.025,
-            Math.sin(a + 0.22) * 0.38,
+            Math.cos(a + 0.2) * 0.46,
+            -0.045,
+            Math.sin(a + 0.2) * 0.46,
           ),
         ],
-        0.063 + r() * 0.012,
-        0.004,
-        i % 2 ? 0x85633c : 0x725036,
+        0.095,
+        0.005,
+        0x795533,
       ),
     );
   }
-  const crownColors =
-    variant % 3 === 2
-      ? [0x547333, 0x72913c, 0x8da545, 0xa2b653]
-      : [0x587e31, 0x739439, 0x91aa46, 0xa2b94f];
-  for (let i = 0; i < 7; i++) {
-    const a = i * 2.4 + variant;
-    const reach = i === 6 ? 0 : 0.29 + r() * 0.12;
-    const y = i === 6 ? 2.12 : 1.44 + (i % 3) * 0.23;
-    const x = lean + Math.cos(a) * reach;
-    const z = Math.sin(a) * reach;
-    if (i < 6) {
-      group.add(
-        createTaperedBranch(
-          [
-            trunkCurve.getPointAt(0.42 + i * 0.047),
-            new THREE.Vector3(x * 0.65, y - 0.35, z * 0.7),
-            new THREE.Vector3(x, y - 0.05, z),
-          ],
-          0.052 - (i % 3) * 0.006,
-          0.01,
-          i % 2 ? 0x7a5837 : 0x62492f,
-        ),
-      );
-    }
+  // Three branch masses form an asymmetric, legible silhouette.
+  const crowns = [
+    [-0.52, 1.66, 0.43, 0.95, 0.52, 0.85],
+    [0.49, 1.93, 0.73, 1.05, 0.56, 0.9],
+    [-0.14, 2.27, 0.6, 1.18, 0.63, 0.99],
+  ];
+  for (const [i, [x, y, z, w, h, d]] of crowns.entries()) {
+    group.add(
+      createTaperedBranch(
+        [
+          trunk[2].clone(),
+          new THREE.Vector3(x * 0.55, y - 0.4, z * 0.7),
+          new THREE.Vector3(x, y - 0.08, z),
+        ],
+        0.1 - i * 0.02,
+        0.015,
+        0x765233,
+      ),
+    );
     const crown = fracturedRock(
-      0.83 + r() * 0.13,
-      0.66 + r() * 0.1,
-      0.76 + r() * 0.1,
-      variant * 13 + i + 44,
-      crownColors[i % 4],
+      w,
+      h,
+      d,
+      variant * 17 + i,
+      [0x496425, 0x64852f, 0x839b3c][i],
     );
     crown.position.set(x, y, z);
-    crown.rotation.y = a;
     group.add(crown);
-    // Small clustered lobes give each silhouette leafy edges rather than spheres.
-    for (let j = 0; j < 3; j++) {
-      const angle = a + j * 2.1;
+    for (let j = 0; j < 8; j++) {
+      const angle = j * 2.4 + i;
       const lobe = fracturedRock(
-        0.32,
-        0.28,
-        0.32,
-        i * 31 + j + variant,
-        crownColors[(i + j + 1) % 4],
+        0.38 + r() * 0.17,
+        0.24 + r() * 0.12,
+        0.36,
+        variant + j + i * 32,
+        [0x6c8c35, 0x829d43, 0x9bac4f][(i + j) % 3],
       );
       lobe.position.set(
-        x + Math.cos(angle) * 0.29,
-        y + 0.12 + r() * 0.11,
-        z + Math.sin(angle) * 0.27,
+        x + Math.cos(angle) * w * 0.34,
+        y + 0.08 + r() * 0.09,
+        z + Math.sin(angle) * d * 0.34,
       );
       group.add(lobe);
     }
   }
+  return bake(group);
+}
+
+/** A buried rock shoulder with moss along its crown; ground datum is y=0. */
+export function createMossBoulder(
+  variant = 0,
+  width = 0.7,
+  depth = 0.64,
+  height = 0.38,
+) {
+  const group = new THREE.Group();
+  group.name = 'mossy-rock-shoulder';
+  const outline = new THREE.Shape();
+  const shapeRandom = random(variant + 291);
   for (let i = 0; i < 8; i++) {
-    const a = i * 2.4;
-    mossPatch(
-      group,
-      Math.cos(a) * 0.23,
-      0.02,
-      Math.sin(a) * 0.23,
-      0.055 + r() * 0.055,
-      crownColors[i % 4],
-    );
+    const angle = (i * Math.PI) / 4;
+    const radius = 0.78 + shapeRandom() * 0.2;
+    const x = Math.cos(angle) * (width - 0.08) * 0.5 * radius;
+    const z = Math.sin(angle) * (depth - 0.08) * 0.5 * radius;
+    if (i === 0) outline.moveTo(x, z);
+    else outline.lineTo(x, z);
+  }
+  outline.closePath();
+  const rockGeometry = new THREE.ExtrudeGeometry(outline, {
+    depth: height * 1.05,
+    bevelEnabled: true,
+    bevelThickness: height * 0.14,
+    bevelSize: 0.04,
+    bevelSegments: 2,
+    steps: 1,
+  });
+  rockGeometry.rotateX(-Math.PI / 2);
+  rockGeometry.translate(0, -height * 0.525, 0);
+  const stone = mesh(rockGeometry, [0x756957, 0x625951, 0x87745c][variant % 3]);
+  stone.material.flatShading = false;
+  const positions = stone.geometry.getAttribute('position');
+  for (let i = 0; i < positions.count; i++) {
+    const x = positions.getX(i),
+      y = positions.getY(i),
+      z = positions.getZ(i);
+    const erosion = Math.sin(x * 19 + z * 23 + variant) * 0.028;
+    positions.setXYZ(i, x + erosion * 0.4, y + erosion, z - erosion * 0.3);
+  }
+  stone.geometry.computeVertexNormals();
+  stone.position.y = -height * 0.36;
+  stone.updateMatrixWorld(true);
+  group.add(stone);
+  const r = random(variant + 591);
+  const ray = new THREE.Raycaster();
+  for (let i = 0; i < 7; i++) {
+    const x = (r() - 0.5) * width * 0.67,
+      z = (r() - 0.5) * depth * 0.66;
+    ray.set(new THREE.Vector3(x, 2, z), new THREE.Vector3(0, -1, 0));
+    const hit = ray.intersectObject(stone, false)[0];
+    if (hit)
+      mossPatch(
+        group,
+        x,
+        hit.point.y + 0.005,
+        z,
+        0.11 + r() * 0.1,
+        [0x607527, 0x7e8c32, 0x8f9942][i % 3],
+      );
   }
   return bake(group);
 }

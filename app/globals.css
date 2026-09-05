@@ -332,7 +332,7 @@ a:focus-visible {
 .overworld {
   position: relative;
   width: 100%;
-  height: clamp(580px, 74vh, 850px);
+  height: clamp(440px, calc(100svh - 195px), 850px);
 }
 .world-canvas {
   position: absolute;
@@ -348,6 +348,20 @@ a:focus-visible {
   width: 100%;
   height: 100%;
   touch-action: none;
+}
+.adventure-heading {
+  display: none;
+}
+.island-caption {
+  top: 15px;
+}
+.island-caption span {
+  color: #ede1be;
+  text-shadow: 0 1px 6px #133d48;
+}
+.island-caption h2 {
+  color: #fff4d6;
+  text-shadow: 0 2px 8px #133d48;
 }
 .camera-tools {
   position: absolute;
@@ -695,7 +709,7 @@ a:focus-visible {
 }
 @media (min-width: 1600px) {
   .overworld {
-    height: 74vh;
+    height: calc(100svh - 195px);
   }
 }
 @media (max-width: 1300px) {

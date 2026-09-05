@@ -1,9 +1,65 @@
 import * as THREE from 'three';
-import { shorelineRadius } from './terrain';
+import { shorelineRadius } from './terrain.ts';
 
 /** Sea, foam and spray share a clock so a splash is attached to a breaking crest. */
 export const SEA_LEVEL = -2.65;
 const TAU = Math.PI * 2;
+export type SurfObstacle = {
+  x: number;
+  z: number;
+  radiusX: number;
+  radiusZ: number;
+};
+
+/** Periodic normal fields, not one image translated over the entire ocean. */
+export function createOceanNormalMap(seed: number) {
+  const size = 128,
+    data = new Uint8Array(size * size * 4);
+  const noise = (u: number, v: number, cells: number) => {
+    const x = u * cells,
+      y = v * cells,
+      ix = Math.floor(x),
+      iy = Math.floor(y);
+    const fx = x - ix,
+      fy = y - iy,
+      sx = fx * fx * (3 - 2 * fx),
+      sy = fy * fy * (3 - 2 * fy);
+    const hash = (a: number, b: number) => {
+      a = ((a % cells) + cells) % cells;
+      b = ((b % cells) + cells) % cells;
+      const value = Math.sin(a * 127.1 + b * 311.7 + seed * 74.7) * 43758.5453;
+      return value - Math.floor(value);
+    };
+    return THREE.MathUtils.lerp(
+      THREE.MathUtils.lerp(hash(ix, iy), hash(ix + 1, iy), sx),
+      THREE.MathUtils.lerp(hash(ix, iy + 1), hash(ix + 1, iy + 1), sx),
+      sy,
+    );
+  };
+  const height = (x: number, y: number) =>
+    noise(x / size, y / size, 5) * 0.6 +
+    noise(x / size, y / size, 11) * 0.28 +
+    noise(x / size, y / size, 23) * 0.12;
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const dx = (height(x + 1, y) - height(x - 1, y)) * 3.2;
+      const dz = (height(x, y + 1) - height(x, y - 1)) * 3.2;
+      const n = new THREE.Vector3(-dx, 1, -dz).normalize();
+      const index = (y * size + x) * 4;
+      data[index] = Math.round((n.x * 0.5 + 0.5) * 255);
+      data[index + 1] = Math.round((n.z * 0.5 + 0.5) * 255);
+      data[index + 2] = Math.round((n.y * 0.5 + 0.5) * 255);
+      data[index + 3] = 255;
+    }
+  const texture = new THREE.DataTexture(data, size, size);
+  texture.name = `ocean-normal-${seed}`;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
 const waveDirections = [
   [0.92, 0.39, 0.105, 0.47, 0.79, 0.3],
   [0.74, 0.67, 0.062, 0.72, 1.03, 2.1],
@@ -19,7 +75,9 @@ function coastDistance(x: number, z: number) {
 export function sampleWave(x: number, z: number, time: number) {
   let y = SEA_LEVEL;
   for (const [dx, dz, amplitude, frequency, speed, phase] of waveDirections)
-    y += amplitude * Math.sin((x * dx + z * dz) * frequency - time * speed + phase);
+    y +=
+      amplitude *
+      Math.sin((x * dx + z * dz) * frequency - time * speed + phase);
   return y;
 }
 
@@ -92,10 +150,40 @@ export function createOcean() {
   const group = new THREE.Group();
   group.name = 'ocean-and-breaking-surf';
   const uniformTime = { value: 0 };
+  const normalMaps = [
+    createOceanNormalMap(11),
+    createOceanNormalMap(29),
+    createOceanNormalMap(47),
+  ];
+  const obstacles = Array.from({ length: 8 }, () => new THREE.Vector4());
+  const obstacleCount = { value: 0 };
+  const reflection = new THREE.WebGLRenderTarget(768, 768, {
+    type: THREE.HalfFloatType,
+  });
+  const refraction = new THREE.WebGLRenderTarget(1, 1, {
+    type: THREE.HalfFloatType,
+    depthTexture: new THREE.DepthTexture(1, 1),
+  });
+  refraction.texture.name = 'underwater-scene-color';
+  const viewport = new THREE.Vector2(1, 1);
+  const inverseProjection = new THREE.Matrix4();
+  const reflectionMatrix = new THREE.Matrix4();
+  const mirror = new THREE.PerspectiveCamera();
   const waterMaterial = new THREE.ShaderMaterial({
     uniforms: {
       uTime: uniformTime,
       uHorizon: { value: new THREE.Color(0xb5d0d6) },
+      uReflection: { value: reflection.texture },
+      uReflectionMatrix: { value: reflectionMatrix },
+      uRefraction: { value: refraction.texture },
+      uSceneDepth: { value: refraction.depthTexture },
+      uViewport: { value: viewport },
+      uInverseProjection: { value: inverseProjection },
+      uSwellNormal: { value: normalMaps[0] },
+      uCrossNormal: { value: normalMaps[1] },
+      uRippleNormal: { value: normalMaps[2] },
+      uIslets: { value: obstacles },
+      uIsletCount: obstacleCount,
     },
     vertexShader: `
       uniform float uTime;
@@ -111,40 +199,86 @@ export function createOcean() {
     fragmentShader: `
       uniform float uTime;
       uniform vec3 uHorizon;
+      uniform sampler2D uReflection;
+      uniform sampler2D uRefraction,uSceneDepth;
+      uniform vec2 uViewport;
+      uniform mat4 uInverseProjection;
+      uniform sampler2D uSwellNormal,uCrossNormal,uRippleNormal;
+      uniform vec4 uIslets[8];
+      uniform int uIsletCount;
+      uniform mat4 uReflectionMatrix;
       varying vec3 vWorld;
       ${waveGLSL}
       ${noiseGLSL}
+      float sceneDistance(vec2 uv,float depth) {
+        vec4 p=uInverseProjection*vec4(uv*2.-1.,depth*2.-1.,1.);
+        return length(p.xyz/p.w);
+      }
       void main() {
         vec2 p=vWorld.xz;
         float d=coast(p);
+        for(int i=0;i<8;i++) {
+          if(i>=uIsletCount) break;
+          vec4 island=uIslets[i];
+          float shore=(length((p-island.xy)/island.zw)-1.)*min(island.z,island.w);
+          d=min(d,shore);
+        }
         if(d < -1.7) discard;
         vec3 wave=oceanWave(p,uTime);
-        // Wind-advected microstructure breaks up bands without printing sine
-        // contours across the surface.
-        vec2 wind=p*2.1-vec2(uTime*.13,uTime*.08);
-        float epsilon=.065;
-        vec2 detail=vec2(fbm(wind+vec2(epsilon,0.))-fbm(wind-vec2(epsilon,0.)),fbm(wind+vec2(0.,epsilon))-fbm(wind-vec2(0.,epsilon)))*.2;
-        vec3 n=normalize(vec3(-wave.y-detail.x,1.,-wave.z-detail.y));
+        // Three unrelated periodic normal maps, different scales, directions and
+        // clocks: swell, crossing waves and small wind ripples.
+        vec2 warp=vec2(noise(p*.17+uTime*.013),noise(p*.19+17.-uTime*.011))*.15;
+        vec2 swell=texture2D(uSwellNormal,p*.083+warp+vec2(-uTime*.014,uTime*.007)).rg*2.-1.;
+        vec2 crossWave=texture2D(uCrossNormal,mat2(.6,-.8,.8,.6)*p*.193-warp+vec2(uTime*.021,-uTime*.013)).rg*2.-1.;
+        vec2 ripple=texture2D(uRippleNormal,p*.517+warp*.4+vec2(-uTime*.031,-uTime*.023)).rg*2.-1.;
+        vec2 detail=swell*.5+crossWave*.34+ripple*.17;
+        float waveVisibility=1.-smoothstep(12.,50.,length(p))*.985;
+        vec3 n=normalize(vec3((-wave.y-detail.x)*waveVisibility,1.,(-wave.z-detail.y)*waveVisibility));
         vec3 viewDir=normalize(cameraPosition-vWorld);
         vec3 lightDir=normalize(vec3(-.65,.85,.25));
         float fresnel=.025+.975*pow(1.-max(dot(n,viewDir),0.),5.);
         float shallows=exp(-max(d,0.)*.72);
-        vec3 deep=vec3(.017,.087,.145), shallow=vec3(.039,.24,.205);
+        vec3 deep=vec3(.006,.039,.075), shallow=vec3(.026,.18,.142);
         vec3 water=mix(deep,shallow,shallows);
+        // Color and depth of the actual scene behind the water. Absorption is
+        // exponential in the ray's underwater distance (Beer-Lambert), not alpha
+        // guessed from distance to the island center.
+        vec2 screenUv=gl_FragCoord.xy/uViewport;
+        float surfaceDistance=length(cameraPosition-vWorld);
+        float rawDepth=texture2D(uSceneDepth,screenUv).x;
+        float opticalDepth=rawDepth>.9999?30.:max(0.,sceneDistance(screenUv,rawDepth)-surfaceDistance);
+        vec3 viewNormal=mat3(viewMatrix)*n;
+        vec2 refractedUv=clamp(screenUv+viewNormal.xy*.016*min(opticalDepth,2.),.002,.998);
+        float refractedDepth=texture2D(uSceneDepth,refractedUv).x;
+        // Don't refract foreground dry rock across the water's silhouette.
+        if(refractedDepth<.9999 && sceneDistance(refractedUv,refractedDepth)<surfaceDistance)
+          refractedUv=screenUv;
+        vec3 bottom=texture2D(uRefraction,refractedUv).rgb;
+        vec3 transmittance=exp(-vec3(.63,.23,.14)*opticalDepth);
+        vec3 transmission=bottom*transmittance+water*(1.-transmittance);
+        water=mix(water,transmission,.92);
         float sandyShelf=exp(-pow((d-.25)*1.8,2.));
         water+=vec3(.038,.048,.014)*smoothstep(.56,.75,fbm(p*3.3+uTime*.08))*sandyShelf;
         vec3 reflected=reflect(-viewDir,n);
         vec3 sky=mix(uHorizon,vec3(.22,.37,.48),smoothstep(0.,.9,reflected.y));
         sky+=vec3(.13,.08,.025)*pow(max(dot(reflected,lightDir),0.),5.);
-        water=mix(water,sky,.13+fresnel*.72);
+        water=mix(water,sky,.025+fresnel*.35);
+        vec4 projected=uReflectionMatrix*vec4(p.x,${SEA_LEVEL},p.y,1.);
+        vec2 reflectionUv=projected.xy/projected.w+n.xz*.043;
+        vec3 reflectedScene=texture2D(uReflection,clamp(reflectionUv,.002,.998)).rgb;
+        water=mix(water,reflectedScene,clamp(.035+fresnel*.42,0.,.55));
         float specular=pow(max(dot(n,normalize(lightDir+viewDir)),0.),110.);
         water+=vec3(.37,.29,.17)*specular;
-        float breaking=smoothstep(.045,.14,wave.x);
-        float turbulent=fbm(p*2.8-vec2(uTime*.18,uTime*.1));
-        float patches=smoothstep(.56,.73,fbm(p*.9+vec2(uTime*.035,-uTime*.045)));
-        float wash=exp(-pow((d+wave.x*1.9-.03)*3.3,2.));
-        float froth=wash*breaking*patches*smoothstep(.4,.65,turbulent);
-        water=mix(water,vec3(.54,.7,.66),froth*.68);
+        float breaking=smoothstep(-.035,.11,wave.x);
+        float turbulent=fbm(p*4.3-vec2(uTime*.24,uTime*.15));
+        float patches=smoothstep(.28,.65,fbm(p*1.3+vec2(uTime*.07,-uTime*.05)));
+        float wash=exp(-pow((d+wave.x*1.5-.1)*2.6,2.));
+        float roll=.58+.23*sin(uTime*.9+p.x*.12+p.y*.08);
+        float breaker=exp(-pow((d-roll)*5.,2.))*breaking*patches;
+        float lace=smoothstep(.29,.64,turbulent);
+        float froth=wash*(.34+.66*breaking)*(.32+.68*lace)+breaker*.55;
+        float whitecaps=smoothstep(.115,.19,wave.x)*smoothstep(.64,.79,turbulent)*smoothstep(1.3,3.,d);
+        water=mix(water,vec3(.82,.94,.9),clamp(froth*.93+whitecaps*.45,0.,.94));
         // Match the scene background before the camera's far clip so even the
         // widest allowed orbit has no visible finite plane edge.
         float horizon=smoothstep(42.,92.,length(p));
@@ -251,9 +385,100 @@ export function createOcean() {
   return {
     group,
     update,
+    setObstacles(islets: SurfObstacle[]) {
+      obstacleCount.value = Math.min(obstacles.length, islets.length);
+      islets
+        .slice(0, obstacles.length)
+        .forEach((islet, i) =>
+          obstacles[i].set(
+            islet.x,
+            islet.z,
+            Math.max(0.1, islet.radiusX),
+            Math.max(0.1, islet.radiusZ),
+          ),
+        );
+    },
+    renderReflection(
+      renderer: THREE.WebGLRenderer,
+      scene: THREE.Scene,
+      camera: THREE.PerspectiveCamera,
+    ) {
+      camera.updateMatrixWorld();
+      renderer.getDrawingBufferSize(viewport);
+      inverseProjection.copy(camera.projectionMatrixInverse);
+      const ratio = Math.min(1, 1280 / Math.max(viewport.x, viewport.y));
+      const width = Math.max(1, Math.round(viewport.x * ratio)),
+        height = Math.max(1, Math.round(viewport.y * ratio));
+      if (refraction.width !== width || refraction.height !== height)
+        refraction.setSize(width, height);
+      mirror.position.copy(camera.position);
+      mirror.position.y = 2 * SEA_LEVEL - camera.position.y;
+      const direction = camera.getWorldDirection(new THREE.Vector3());
+      direction.y *= -1;
+      mirror.up.copy(camera.up);
+      mirror.up.y *= -1;
+      mirror.lookAt(mirror.position.clone().add(direction));
+      mirror.far = camera.far;
+      mirror.projectionMatrix.copy(camera.projectionMatrix);
+      mirror.updateMatrixWorld();
+      reflectionMatrix
+        .set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1)
+        .multiply(mirror.projectionMatrix)
+        .multiply(mirror.matrixWorldInverse);
+      // Oblique near plane clips submerged geometry from the mirrored view.
+      const plane = new THREE.Plane(
+        new THREE.Vector3(0, 1, 0),
+        -SEA_LEVEL,
+      ).applyMatrix4(mirror.matrixWorldInverse);
+      const clip = new THREE.Vector4(
+        plane.normal.x,
+        plane.normal.y,
+        plane.normal.z,
+        plane.constant,
+      );
+      const m = mirror.projectionMatrix.elements;
+      const q = new THREE.Vector4(
+        (Math.sign(clip.x) + m[8]) / m[0],
+        (Math.sign(clip.y) + m[9]) / m[5],
+        -1,
+        (1 + m[10]) / m[14],
+      );
+      clip.multiplyScalar(2 / clip.dot(q));
+      m[2] = clip.x;
+      m[6] = clip.y;
+      m[10] = clip.z + 1 - 0.003;
+      m[14] = clip.w;
+      const hidden: THREE.Object3D[] = [];
+      scene.traverse((o) => {
+        if (o.visible && o.userData.noDofDepth) {
+          o.visible = false;
+          hidden.push(o);
+        }
+      });
+      const previous = renderer.getRenderTarget(),
+        shadowUpdate = renderer.shadowMap.autoUpdate;
+      group.visible = false;
+      renderer.shadowMap.autoUpdate = false;
+      try {
+        renderer.setRenderTarget(refraction);
+        renderer.clear();
+        renderer.render(scene, camera);
+        renderer.setRenderTarget(reflection);
+        renderer.clear();
+        renderer.render(scene, mirror);
+      } finally {
+        renderer.setRenderTarget(previous);
+        renderer.shadowMap.autoUpdate = shadowUpdate;
+        group.visible = true;
+        hidden.forEach((o) => (o.visible = true));
+      }
+    },
     dispose() {
+      reflection.dispose();
+      refraction.dispose();
       geometry.dispose();
       waterMaterial.dispose();
+      normalMaps.forEach((texture) => texture.dispose());
       dropletGeometry.dispose();
       dropletMaterial.dispose();
       spray.dispose();

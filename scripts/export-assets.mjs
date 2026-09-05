@@ -9,6 +9,7 @@ import {
   createBridge,
   createFoliage,
   createMushroomPatch,
+  createMossBoulder,
   createRoots,
   createRuneWaystone,
   createTree,
@@ -19,6 +20,15 @@ import {
   createCliffSection,
   createBeach,
 } from '../lib/three/terrain.ts';
+import {
+  createStoneArch,
+  createWatchtower,
+  createBackdropCliff,
+} from '../lib/three/background-scenery.ts';
+import {
+  createSeagrass,
+  createReefCoral,
+} from '../lib/three/underwater-scenery.ts';
 
 // Three.js ObjectLoader JSON: portable geometry/materials, no texture dependencies.
 const output = new URL('../public/assets/shared/', import.meta.url);
@@ -34,12 +44,18 @@ const assets = {
   'bridge-wood': createBridge(),
   foliage: createFoliage(),
   'mushroom-patch': createMushroomPatch(),
+  'moss-boulder': createMossBoulder(),
   roots: createRoots(),
   'rune-waystone': createRuneWaystone(),
   'tree-mossbound': createTree(),
   'island-cliff': createIslandCliff(),
   'cliff-section': createCliffSection(),
   'beach-sand': createBeach(),
+  'stone-arch': createStoneArch(),
+  watchtower: createWatchtower(),
+  'backdrop-cliff': createBackdropCliff(),
+  seagrass: createSeagrass(),
+  'reef-coral': createReefCoral(),
 };
 for (const [name, asset] of Object.entries(assets)) {
   asset.name = name;

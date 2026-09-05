@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyDioramaSurface } from './surface-material.ts';
 
 /** Shared measurements keep the shore, surf, props and game board aligned. */
 export const TERRAIN = Object.freeze({
@@ -7,7 +8,7 @@ export const TERRAIN = Object.freeze({
   topHalfExtent: 5.15,
   bottomY: -3.3,
   beachInnerHalfExtent: 4.6,
-  beachOuterHalfExtent: 5.95,
+  beachOuterHalfExtent: 6.65,
   shoreHalfExtent: 5.66,
   sectionWidth: 2,
 });
@@ -39,17 +40,11 @@ export function shorelineRadius(angle: number) {
 }
 
 const cliffRings = [
-  { y: -0.23, extent: 5.15, tint: 0x84902b },
-  { y: -0.36, extent: 5.2, tint: 0x747344 },
-  { y: -0.55, extent: 5.09, tint: 0x827763 },
-  { y: -0.83, extent: 5.04, tint: 0x7a7063 },
-  { y: -1.02, extent: 5.01, tint: 0x7a7063 },
-  { y: -1.47, extent: 4.94, tint: 0x726b62 },
-  { y: -1.64, extent: 4.89, tint: 0x726b62 },
-  { y: -2.15, extent: 4.76, tint: 0x696660 },
-  { y: -2.34, extent: 4.68, tint: 0x676561 },
-  { y: -2.75, extent: 4.56, tint: 0x48535a },
-  { y: -3.3, extent: 4.12, tint: 0x374b53 },
+  { y: -0.23, extent: 5.15, tint: 0x788022 },
+  { y: -0.48, extent: 5.2, tint: 0x96806a },
+  { y: -0.76, extent: 5.15, tint: 0x746454 },
+  { y: -2.3, extent: 4.75, tint: 0x454855 },
+  { y: -3.3, extent: 4.14, tint: 0x303b4c },
 ] as const;
 
 function finishGeometry(
@@ -71,67 +66,68 @@ function finishGeometry(
 }
 
 function rockMaterial() {
-  return new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    vertexColors: true,
-    roughness: 0.97,
-    flatShading: true,
-  });
+  const material = applyDioramaSurface(
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: 0.97,
+      flatShading: true,
+    }),
+  );
+  material.userData.surfaceKind = 2;
+  return material;
 }
 
 /** A single indexed, watertight landform: no overlapping pillar seams or holes. */
 export function createIslandCliff() {
-  // Broad stone planes, not dense noisy triangles: roughly 65 cm per face.
-  const segments = 64;
+  // Thirty-two broad stone columns, each bounded by a narrow recessed joint.
+  const segments = 128;
   const positions: number[] = [],
     colors: number[] = [],
     indices: number[] = [];
   // Correlated irregular stone sectors stagger the horizontal fracture heights.
   // The same shift follows each vertical buttress, keeping all rings ordered.
-  const sectorCount = segments / 2;
+  const sectorCount = segments / 4;
   const hash = (sector: number, salt: number) => {
     const value =
       Math.sin(((sector + sectorCount) % sectorCount) * 127.1 + salt * 311.7) *
       43758.5453;
     return value - Math.floor(value);
   };
-  const warpEnvelope = [0, 0.18, 0.65, 1, 1, 1, 1, 1, 0.85, 0.45, 0];
+  const warpEnvelope = [0, 0.5, 1, 1, 0];
   cliffRings.forEach((ring, layer) => {
     for (let i = 0; i < segments; i++) {
-      const a = (i / segments) * Math.PI * 2;
-      const sector = Math.floor(i / 2),
-        atJoint = i % 2 === 0;
+      const sector = Math.floor(i / 4),
+        atJoint = i % 4 === 0;
+      // Narrow recessed joints and broad, nearly planar column faces.
+      const phase = [0, 0.14, 0.5, 0.86][i % 4];
+      const a = ((sector + phase) / sectorCount) * Math.PI * 2;
       const sectorSample = (salt: number) =>
         atJoint
           ? (hash(sector - 1, salt) + hash(sector, salt)) * 0.5
           : hash(sector, salt);
-      const yShift = (sectorSample(2) - 0.5) * 0.34;
-      // A joint recess connects adjacent buttresses; ledges occur at different
-      // levels for each block instead of forming full, cake-like circumferences.
-      const ledgeLayer = 3 + Math.floor(hash(sector, 4) * 4);
-      const ledge =
-        layer === ledgeLayer ? 0.19 : layer === ledgeLayer + 1 ? -0.06 : 0;
-      const sectorProjection = (sectorSample(1) - 0.5) * 0.24;
+      const yShift = (sectorSample(2) - 0.5) * 0.48;
+      // Correlated projections carry the same fracture down each vertical face.
+      const sectorProjection = (sectorSample(1) - 0.5) * 0.3;
       const reliefEnvelope =
         layer === 0
           ? 0
           : layer === 1
-            ? 0.15
+            ? 0.8
             : layer === 2
-              ? 0.55
+              ? 1
               : layer === cliffRings.length - 1
                 ? 0.3
                 : 1;
       const fracture =
-        reliefEnvelope * (sectorProjection + (atJoint ? -0.07 : 0.09) + ledge);
+        reliefEnvelope * (sectorProjection + (atJoint ? -0.24 : 0.12));
       const radius = roundedSquareRadius(a, ring.extent) + fracture;
       const y = ring.y + yShift * warpEnvelope[layer];
       positions.push(Math.cos(a) * radius, y, Math.sin(a) * radius);
       const tone = layer < 2 ? 1 : 0.88 + sectorSample(3) * 0.22;
-      const jointOcclusion = atJoint && layer > 1 ? 0.9 : 1;
-      const ledgeOcclusion = layer === ledgeLayer + 1 ? 0.88 : 1;
+      const jointOcclusion = atJoint && layer > 0 ? 0.58 : 1;
       const tint = new THREE.Color(ring.tint).multiplyScalar(
-        tone * jointOcclusion * ledgeOcclusion,
+        tone * jointOcclusion,
       );
       colors.push(tint.r, tint.g, tint.b);
       if (layer < cliffRings.length - 1) {
@@ -260,6 +256,8 @@ export function createBeach() {
     [5.48, -2.54, 0xd2bd92],
     [5.66, -2.65, 0xb5ad8d],
     [5.95, -2.89, 0x788e85],
+    [6.25, -3.24, 0xb5a77f],
+    [6.65, -3.95, 0xa59977],
   ];
   const positions: number[] = [],
     colors: number[] = [],
@@ -298,6 +296,65 @@ export function createBeach() {
   mesh.name = 'beach-sand';
   mesh.receiveShadow = true;
   return mesh;
+}
+
+/** A continuous submerged sand slope meeting a broad lagoon floor 2.5 m down.
+ * The plane extends beyond the camera range, so no seabed edge can be exposed.
+ */
+export function createSeabed() {
+  const segments = 160,
+    positions: number[] = [],
+    colors: number[] = [],
+    indices: number[] = [];
+  const rings = [
+    [6.65, -3.95, 0xa59977],
+    [7.6, -4.7, 0xb2a17a],
+    [9.4, -5.15, 0xac9e79],
+    [13, -5.15, 0xa79b78],
+    [25, -5.15, 0x9c9476],
+    [2000, -5.15, 0x9c9476],
+  ];
+  rings.forEach(([extent, y, color], row) => {
+    for (let i = 0; i < segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+      const radius =
+        roundedSquareRadius(angle, extent) *
+        (1 + Math.sin(angle * 7) * 0.012 + Math.sin(angle * 13) * 0.006);
+      // Match beach ring 7, including its tiny vertical sand undulation.
+      const ripple =
+        row === 0
+          ? Math.sin(angle * 31 + 7 * 1.8) * 0.018
+          : row < 2
+            ? Math.sin(angle * 13 + row) * 0.045
+            : 0;
+      positions.push(
+        Math.cos(angle) * radius,
+        y + ripple,
+        Math.sin(angle) * radius,
+      );
+      const tint = new THREE.Color(color).multiplyScalar(
+        row === 0 ? 0.98 + Math.sin(angle * 53 + 7 * 7) * 0.026 : 1,
+      );
+      colors.push(tint.r, tint.g, tint.b);
+      if (row < rings.length - 1) {
+        const a = row * segments + i,
+          b = row * segments + ((i + 1) % segments);
+        indices.push(a, b, a + segments, b, b + segments, a + segments);
+      }
+    }
+  });
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    roughness: 1,
+  });
+  const floor = new THREE.Mesh(
+    finishGeometry(positions, colors, indices),
+    material,
+  );
+  floor.name = 'submerged-sand-slope';
+  floor.receiveShadow = true;
+  return floor;
 }
 
 /** Distant fragments stay outside the playable island, rendered in one draw call. */

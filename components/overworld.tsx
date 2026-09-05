@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import {
   ChevronLeft,
   ChevronRight,
@@ -13,26 +14,22 @@ import {
 import {
   createTile,
   createFlag,
-  createCrystal,
-  createLantern,
   createPortal,
-  createBridge,
-  createFoliage,
-  createMushroomPatch,
-  createRoots,
-  createRuneWaystone,
-  createTree,
   updateAssetAnimations,
   disposeObjects,
 } from '@/lib/three/asset-kit';
 import {
   createIslandCliff,
   createBeach,
+  createSeabed,
   createFloatingRocks,
-  TERRAIN,
 } from '@/lib/three/terrain';
 import { createOcean, createAtmosphere } from '@/lib/three/ocean';
+import { createScenery } from '@/lib/three/scenery';
 import { createSceneEffects } from '@/lib/three/scene-effects';
+import { bindDioramaAtlas } from '@/lib/three/surface-material';
+import { createUnderwaterScenery } from '@/lib/three/underwater-scenery';
+import { createBackgroundScenery } from '@/lib/three/background-scenery';
 
 export type BoardCell = {
   id: number;
@@ -116,12 +113,12 @@ export default function Overworld(props: Props) {
       const pending = requestAnimationFrame(() => setFallback(true));
       return () => cancelAnimationFrame(pending);
     }
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    renderer.setPixelRatio(Math.min(2, Math.max(devicePixelRatio, 1.5)));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.85;
+    renderer.toneMappingExposure = 1.05;
     renderer.domElement.setAttribute('aria-hidden', 'true');
     container.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
@@ -129,7 +126,7 @@ export default function Overworld(props: Props) {
     scene.fog = new THREE.FogExp2(0xb5d0d6, 0.007);
     const camera = new THREE.PerspectiveCamera(35, 1, 0.15, 160);
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, -0.65, 0.1);
+    controls.target.set(0, -0.55, 0.3);
     controls.enableDamping = true;
     controls.dampingFactor = 0.075;
     controls.enablePan = false;
@@ -153,7 +150,7 @@ export default function Overworld(props: Props) {
       camera.position
         .copy(controls.target)
         .add(
-          new THREE.Vector3(0.15, 0.62, 0.77)
+          new THREE.Vector3(0.22, 1.03, 0.95)
             .normalize()
             .multiplyScalar(defaultDistance),
         );
@@ -186,11 +183,11 @@ export default function Overworld(props: Props) {
       camera.position.copy(controls.target).add(offset);
       controls.update();
     };
-    scene.add(new THREE.HemisphereLight(0xb9dcfa, 0x675541, 0.85));
-    const sun = new THREE.DirectionalLight(0xffd08a, 2.3);
-    sun.position.set(-8, 13, 5);
+    scene.add(new THREE.HemisphereLight(0x7592cc, 0x3a3047, 0.4));
+    const sun = new THREE.DirectionalLight(0xffce88, 3.5);
+    sun.position.set(-10, 8, -3);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(4096, 4096);
     Object.assign(sun.shadow.camera, {
       left: -10,
       right: 10,
@@ -199,129 +196,50 @@ export default function Overworld(props: Props) {
       near: 0.5,
       far: 42,
     });
-    sun.shadow.normalBias = 0.025;
-    sun.shadow.bias = -0.0001;
+    sun.shadow.normalBias = 0.012;
+    sun.shadow.bias = -0.00005;
     scene.add(sun);
-    const rim = new THREE.DirectionalLight(0x6bbbea, 1.1);
-    rim.position.set(7, 4, -6);
+    const rim = new THREE.DirectionalLight(0x558bff, 1.7);
+    rim.position.set(7, 3, 1);
     scene.add(rim);
-    const fill = new THREE.DirectionalLight(0xa9bbef, 0.55);
+    const fill = new THREE.DirectionalLight(0x8b9ecf, 0.18);
     fill.position.set(4, 3, 10);
     scene.add(fill);
+    RectAreaLightUniformsLib.init();
+    const warmEdge = new THREE.RectAreaLight(0xffd49a, 3.5, 7, 9);
+    warmEdge.position.set(-7, 7, -2);
+    warmEdge.lookAt(0, 0, 0);
+    scene.add(warmEdge);
 
     const island = new THREE.Group();
     scene.add(island);
-    island.add(createIslandCliff(), createBeach());
-    const baseline = TERRAIN.topY;
-    // Five authored landmarks replace the old evenly-spaced prop loop. Each has
-    // a different silhouette and leaves a clean one-tile buffer around the board.
-    const addFoliage = (
-      owner: THREE.Group,
-      x: number,
-      z: number,
-      scale: number,
-      variant: number,
-    ) => {
-      const plant = createFoliage(variant);
-      plant.position.set(x, 0.01, z);
-      plant.scale.setScalar(scale);
-      plant.rotation.y = variant * 1.17;
-      owner.add(plant);
-    };
-    const addTree = (
-      owner: THREE.Group,
-      x: number,
-      z: number,
-      scale: number,
-      variant: number,
-      cascading = false,
-    ) => {
-      const tree = createTree(variant);
-      tree.position.set(x, 0, z);
-      tree.scale.setScalar(scale);
-      tree.rotation.y = Math.atan2(x, z);
-      owner.add(tree);
-      if (cascading) {
-        const roots = createRoots(variant);
-        roots.name = 'roots-attached-to-tree';
-        roots.position.copy(tree.position);
-        roots.scale.copy(tree.scale);
-        roots.rotation.copy(tree.rotation);
-        owner.add(roots);
-      }
-    };
-
-    const westernGrove = new THREE.Group();
-    westernGrove.name = 'landmark-western-grove';
-    westernGrove.position.y = baseline;
-    addTree(westernGrove, -4.72, -2.82, 0.82, 7, true);
-    addTree(westernGrove, -4.78, -3.82, 0.56, 19);
-    addFoliage(westernGrove, -4.42, -2.1, 1.05, 3);
-    addFoliage(westernGrove, -4.38, -3.65, 0.78, 14);
-    const groveLantern = createLantern();
-    groveLantern.position.set(-4.25, -0.01, -4.47);
-    groveLantern.scale.setScalar(0.78);
-    westernGrove.add(groveLantern);
-    island.add(westernGrove);
-
-    const amethystSanctum = new THREE.Group();
-    amethystSanctum.name = 'landmark-amethyst-sanctum';
-    amethystSanctum.position.y = baseline;
-    const crystal = createCrystal(0x842fc4);
-    crystal.position.set(4.7, 0.02, -3.28);
-    crystal.scale.setScalar(0.88);
-    crystal.rotation.y = -0.32;
-    amethystSanctum.add(crystal);
-    addFoliage(amethystSanctum, 4.45, -2.45, 0.82, 22);
-    addFoliage(amethystSanctum, 4.42, -4.05, 0.67, 27);
-    const sanctumLantern = createLantern();
-    sanctumLantern.position.set(4.43, 0, -4.48);
-    sanctumLantern.scale.setScalar(0.66);
-    amethystSanctum.add(sanctumLantern);
-    island.add(amethystSanctum);
-
-    const easternWatch = new THREE.Group();
-    easternWatch.name = 'landmark-eastern-rune-watch';
-    easternWatch.position.y = baseline;
-    const waystone = createRuneWaystone(31);
-    waystone.position.set(4.72, 0, 1.18);
-    waystone.rotation.y = -Math.PI / 2;
-    waystone.scale.setScalar(0.88);
-    easternWatch.add(waystone);
-    addFoliage(easternWatch, 4.42, 2.05, 1.12, 33);
-    addFoliage(easternWatch, 4.46, 0.28, 0.62, 38);
-    island.add(easternWatch);
-
-    const quietCove = new THREE.Group();
-    quietCove.name = 'landmark-quiet-cove';
-    quietCove.position.y = baseline;
-    addTree(quietCove, -3.05, 4.76, 0.62, 46, true);
-    const mushrooms = createMushroomPatch(46);
-    mushrooms.position.set(-3.86, 0.01, 4.43);
-    mushrooms.scale.setScalar(0.82);
-    quietCove.add(mushrooms);
-    addFoliage(quietCove, -3.83, 4.45, 0.9, 43);
-    addFoliage(quietCove, -2.2, 4.48, 0.58, 52);
-    island.add(quietCove);
-
-    const bridge = createBridge();
-    bridge.position.set(1.8, baseline, 4.7);
-    bridge.scale.z = 1.25;
-    island.add(bridge);
-    const crossing = new THREE.Group();
-    crossing.name = 'landmark-lantern-crossing';
-    crossing.position.y = baseline;
-    const crossingLantern = createLantern();
-    crossingLantern.position.set(3.72, 0, 4.5);
-    crossingLantern.scale.setScalar(0.72);
-    crossing.add(crossingLantern);
-    addFoliage(crossing, 3.14, 4.52, 0.72, 61);
-    addFoliage(crossing, 0.72, 4.48, 0.55, 65);
-    island.add(crossing);
+    let disposed = false;
+    const materialAtlas = new THREE.TextureLoader().load(
+      '/assets/shared/diorama-material-atlas.png',
+      () => {
+        if (!disposed) bindDioramaAtlas(scene, materialAtlas);
+      },
+    );
+    materialAtlas.colorSpace = THREE.SRGBColorSpace;
+    materialAtlas.anisotropy = Math.min(
+      8,
+      renderer.capabilities.getMaxAnisotropy(),
+    );
+    const cliff = createIslandCliff();
+    const seabed = createSeabed();
+    const underwater = createUnderwaterScenery(seabed);
+    island.add(cliff, createBeach(), seabed, underwater.group);
+    const scenery = createScenery(cliff);
+    island.add(scenery);
+    bindDioramaAtlas(island, materialAtlas);
     const rocks = createFloatingRocks();
     scene.add(rocks.group);
     const ocean = createOcean();
     scene.add(ocean.group);
+    const backdrop = createBackgroundScenery('archipelago', 17);
+    bindDioramaAtlas(backdrop.group, materialAtlas);
+    scene.add(backdrop.group);
+    ocean.setObstacles(backdrop.shorelines);
     const atmosphere = createAtmosphere();
     atmosphere.group.userData.noDofDepth = true;
     scene.add(atmosphere.group);
@@ -373,6 +291,7 @@ export default function Overworld(props: Props) {
           child.userData.cellId = c.id;
         });
         island.add(tile);
+        bindDioramaAtlas(tile, materialAtlas);
         slots.set(c.id, tile);
         signatures.set(c.id, signature);
       }
@@ -458,7 +377,7 @@ export default function Overworld(props: Props) {
         aspect = w / Math.max(h, 1);
       camera.aspect = aspect;
       camera.updateProjectionMatrix();
-      defaultDistance = 22 * Math.max(1, 0.94 / aspect);
+      defaultDistance = 22 * Math.max(1, 1.35 / aspect);
       controls.maxDistance = Math.max(34, defaultDistance * 1.22);
       // Fit only when the viewport shape changes substantially; don't undo orbiting.
       if (previousAspect === 0 || Math.abs(aspect - previousAspect) > 0.4)
@@ -476,6 +395,7 @@ export default function Overworld(props: Props) {
       const time = reduced.matches ? 0 : milliseconds * 0.001;
       controls.update();
       ocean.update(time);
+      underwater.update(time);
       atmosphere.update(time);
       rocks.update(time);
       flags.forEach((flag, id) => updateAssetAnimations(flag, time, id * 0.17));
@@ -488,6 +408,7 @@ export default function Overworld(props: Props) {
               child.intensity = 1.4 + Math.sin(time * 1.7) * 0.15;
           });
         }
+      ocean.renderReflection(renderer, scene, camera);
       effects.render();
       frame = requestAnimationFrame(draw);
     };
@@ -508,6 +429,8 @@ export default function Overworld(props: Props) {
       canvas.removeEventListener('pointerleave', onLeave);
       canvas.removeEventListener('webglcontextlost', onLost);
       scene.remove(ocean.group, atmosphere.group);
+      disposed = true;
+      materialAtlas.dispose();
       ocean.dispose();
       atmosphere.dispose();
       effects.dispose();
