@@ -6,7 +6,8 @@ import { Activity, Flag, Heart, Pickaxe, Radar, RotateCcw, Shield, Skull, Sparkl
 
 import EncounterHost from '@/components/encounter-host';
 import { minigames, selectMinigame } from '@/minigames/registry';
-import type { EncounterResult } from '@/minigames/contract';
+import type { EncounterContext, EncounterResult } from '@/minigames/contract';
+import { applyFloorUpgrade, awardRunXP, createEncounterContext, resolveEncounterStats } from '@/lib/player-stats';
 type Cell = { id: number; mine: boolean; nearby: number; open: boolean; flagged: boolean; disarmed: boolean };
 type Profile = { shards: number; best: number; disarmed: number };
 type Perk = 'armor' | 'repair' | 'salvage';
@@ -122,7 +123,7 @@ function ThreeScene({ danger }: { danger: boolean }) {
 export default function MinebreakGame() {
   const [floor, setFloor] = useState(1); const [seed, setSeed] = useState(14021); const [cells, setCells] = useState(() => makeBoard(1, 14021));
   const [hp, setHp] = useState(5); const [maxHp, setMaxHp] = useState(5); const [xp, setXp] = useState(0); const [first, setFirst] = useState(true);
-  const [encounter, setEncounter] = useState<{ id: number } | null>(null); const [phase, setPhase] = useState<'board' | 'reward' | 'dead'>('board');
+  const [encounter, setEncounter] = useState<{ id: number; context: EncounterContext } | null>(null); const [phase, setPhase] = useState<'board' | 'reward' | 'dead'>('board');
   const [message, setMessage] = useState('Trace a safe path through the field.'); const [perks, setPerks] = useState({ armor: 0, repair: 0, salvage: 0 });
   const [profile, setProfile] = useState<Profile>({ shards: 0, best: 1, disarmed: 0 });
   useEffect(() => { try { const saved = localStorage.getItem(PROFILE_KEY); if (saved) setProfile(JSON.parse(saved)); } catch {} }, []);
@@ -136,19 +137,66 @@ export default function MinebreakGame() {
     let next = cells.map((c) => ({ ...c }));
     if (first && next[id].mine) { const safe = next.find((c) => !c.mine && c.id !== id)!; safe.mine = true; next[id].mine = false; next = recount(next); }
     setFirst(false); const target = next[id];
-    if (target.mine) { target.open = true; setCells(next); setEncounter({ id }); setMessage('Mine triggered. Hostile signal inbound.'); }
-    else { setCells(floodOpen(next, id)); setXp((value) => value + 2); }
+    if (target.mine) {
+      target.open = true;
+      setCells(next);
+      setEncounter({
+        id,
+        context: createEncounterContext(
+          { seed: seed + floor * 101 + id, floor, cellId: id },
+          {
+            health: hp,
+            maxHealth: maxHp,
+            xp,
+            upgrades: perks,
+            profile: { shards: profile.shards, bestFloor: profile.best, totalDisarmed: profile.disarmed },
+          },
+        ),
+      });
+      setMessage('Mine triggered. Hostile signal inbound.');
+    }
+    else { setCells(floodOpen(next, id)); setXp((value) => awardRunXP(value, 2)); }
   };
   const flag = (event: React.MouseEvent, id: number) => { event.preventDefault(); if (phase !== 'board' || encounter || cells[id].open) return; setCells((all) => all.map((c) => c.id === id ? { ...c, flagged: !c.flagged } : c)); };
-  const finish = useCallback((result: EncounterResult) => { if (!encounter) return; setCells((all) => all.map((c) => c.id === encounter.id ? { ...c, open: true, disarmed: true } : c)); if (result.outcome === 'success') { setXp((v) => v + 35 + floor * 5); save({ ...profile, disarmed: profile.disarmed + 1 }); setMessage('Encounter completed.'); } else { const damage = Math.max(1, 2 - perks.armor); const health = hp - damage; setHp(health); setMessage(`System hit. Lost ${damage} integrity.`); if (health <= 0) setPhase('dead'); } setEncounter(null); }, [encounter, floor, hp, perks.armor, profile, save]);
-  const descend = (perk: Perk) => { const nextFloor = floor + 1; setPerks((p) => ({ ...p, [perk]: p[perk] + 1 })); if (perk === 'armor') { setMaxHp((v) => v + 1); setHp((v) => v + 1); } if (perk === 'repair') setHp((v) => Math.min(maxHp, v + 2)); const nextSeed = Date.now() % 999999; setFloor(nextFloor); setSeed(nextSeed); setCells(makeBoard(nextFloor, nextSeed)); setFirst(true); setPhase('board'); setMessage(`Descending to sector ${nextFloor}.`); };
+  const finish = useCallback((result: EncounterResult) => {
+    if (!encounter) return;
+    const stats = resolveEncounterStats(
+      { health: hp, maxHealth: maxHp, xp, upgrades: perks },
+      result,
+      35 + floor * 5,
+    );
+    setCells((all) => all.map((c) => c.id === encounter.id ? { ...c, open: true, disarmed: true } : c));
+    setHp(stats.health);
+    setMaxHp(stats.maxHealth);
+    setXp(stats.xp);
+    setPerks({ ...stats.upgrades });
+    if (result.outcome === 'success') {
+      save({ ...profile, disarmed: profile.disarmed + 1 });
+      setMessage('Encounter completed.');
+    } else {
+      const lostHealth = Math.max(0, hp - stats.health);
+      setMessage(lostHealth ? `Encounter ended. Lost ${lostHealth} integrity.` : 'Encounter ended.');
+    }
+    if (stats.health === 0) setPhase('dead');
+    setEncounter(null);
+  }, [encounter, floor, hp, maxHp, xp, perks, profile, save]);
+  const descend = (perk: Perk) => {
+    const stats = applyFloorUpgrade({ health: hp, maxHealth: maxHp, xp, upgrades: perks }, perk);
+    setPerks({ ...stats.upgrades });
+    setMaxHp(stats.maxHealth);
+    setHp(stats.health);
+    const nextFloor = floor + 1;
+    const nextSeed = Date.now() % 999999;
+    setFloor(nextFloor); setSeed(nextSeed); setCells(makeBoard(nextFloor, nextSeed));
+    setFirst(true); setPhase('board'); setMessage(`Descending to sector ${nextFloor}.`);
+  };
   const newRun = () => { const nextSeed = Date.now() % 999999; setFloor(1); setSeed(nextSeed); setCells(makeBoard(1, nextSeed)); setHp(5); setMaxHp(5); setXp(0); setFirst(true); setEncounter(null); setPhase('board'); setPerks({ armor: 0, repair: 0, salvage: 0 }); setMessage('New descent initialized.'); };
 
   return <main className="mb-shell"><ThreeScene danger={Boolean(encounter)} /><header className="mb-top"><div className="mb-brand"><span><Pickaxe /></span><b>MINE<i>BREAK</i></b><small>ROGUELIKE PROTOCOL</small></div><div className="sector"><i /> SECTOR {String(floor).padStart(2, '0')} <span>DEPTH {floor * 120}M</span></div><button onClick={newRun}><RotateCcw /> NEW RUN</button></header>
     <section className="mb-layout"><aside className="mb-panel stats"><h3><Activity /> RUN STATUS</h3><div className="integrity"><span>INTEGRITY</span><b>{hp}/{maxHp}</b></div><div className="hearts">{Array.from({ length: maxHp }, (_, i) => <Heart key={i} className={i < hp ? 'on' : ''} />)}</div><div className="xp"><span><Zap /> SIGNAL LVL {Math.floor(xp / 100) + 1}</span><b>{xp % 100}%</b><i><em style={{ width: `${xp % 100}%` }} /></i></div><div className="stat-pair"><span><small>THREATS</small><b>{threats}</b></span><span><small>FLAGS</small><b>{flags}</b></span></div><div className="modules"><small>ACTIVE MODULES</small><p><Shield /> Plating <b>+{perks.armor}</b></p><p><Radar /> Repair <b>+{perks.repair}</b></p><p><Sparkles /> Salvage <b>+{perks.salvage}</b></p></div></aside>
       <section className="mb-panel board-panel"><div className="board-title"><span><small>ACTIVE GRID</small><h1>Sector {String(floor).padStart(2, '0')}</h1></span><b><i /> LIVE</b></div><div className="grid-frame"><div className="mine-grid">{cells.map((cell) => <button key={cell.id} className={`${cell.open ? 'open' : ''} ${cell.flagged ? 'flagged' : ''} ${cell.mine && cell.open ? 'mine' : ''} n${cell.nearby}`} onClick={() => open(cell.id)} onContextMenu={(event) => flag(event, cell.id)} aria-label={cell.flagged ? 'Flagged' : cell.open ? cell.mine ? 'Disarmed mine' : `${cell.nearby} nearby mines` : 'Hidden cell'}>{cell.flagged ? <Flag /> : cell.mine && cell.open ? <span>{cell.disarmed ? '×' : '◇'}</span> : cell.open && cell.nearby ? cell.nearby : ''}</button>)}</div></div><output><small>{phase === 'board' ? 'MISSION' : 'STATUS'}</small>{message}</output><div className="controls"><span>CLICK <b>REVEAL</b></span><i /><span>RIGHT-CLICK <b>FLAG</b></span><i /><span>{safeLeft} SAFE NODES LEFT</span></div></section>
       <aside className="mb-panel intel"><h3><Radar /> FIELD INTEL</h3><div className="radar"><span><i /><i /><i /></span><b>{threats}</b><small>ACTIVE SIGNALS</small></div><div className="enemy-list"><div><p><b>{minigames.length} registered minigames</b><small>Each developer owns their module. Trigger a mine to test the shared encounter flow.</small></p></div></div><div className="legacy"><small>LEGACY CACHE</small><b><Sparkles /> {profile.shards} shards</b><span>Best sector {profile.best} · {profile.disarmed} disarmed</span></div></aside></section>
-    {encounter && <EncounterHost key={`${seed}:${floor}:${encounter.id}`} definition={selectMinigame(seed + floor * 101 + encounter.id)} context={{ seed: seed + floor * 101 + encounter.id, floor, cellId: encounter.id }} complete={finish} cancel={() => { setCells(all => all.map(c => c.id === encounter.id ? { ...c, open: false } : c)); setEncounter(null); setMessage('Returned to board.'); }} />}
+    {encounter && <EncounterHost key={`${seed}:${floor}:${encounter.id}`} definition={selectMinigame(encounter.context.seed)} context={encounter.context} complete={finish} cancel={() => { setCells(all => all.map(c => c.id === encounter.id ? { ...c, open: false } : c)); setEncounter(null); setMessage('Returned to board.'); }} />}
     {phase === 'reward' && <div className="mb-overlay"><section className="reward"><small>SECTOR CLEARED</small><h2>Choose one module</h2><p>Modules last until this run ends.</p><div><button onClick={() => descend('armor')}><Shield /><span><b>Reactive Plating</b><small>Reduce damage. +1 max integrity.</small></span></button><button onClick={() => descend('repair')}><Radar /><span><b>Repair Swarm</b><small>Restore 2 integrity.</small></span></button><button onClick={() => descend('salvage')}><Sparkles /><span><b>Deep Salvage</b><small>Gain more permanent shards.</small></span></button></div></section></div>}
     {phase === 'dead' && <div className="mb-overlay"><section className="death"><Skull /><small>RUN TERMINATED</small><h2>Signal lost at sector {floor}</h2><p>Your {profile.shards} legacy shards remain.</p><button onClick={newRun}><Swords /> DESCEND AGAIN</button></section></div>}
     <footer>MINEBREAK // ORIGINAL PROTOTYPE <i /> THREE.JS FIELD RENDERER <i /> LOCAL PROGRESS ENABLED</footer></main>;
