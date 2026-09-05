@@ -411,7 +411,7 @@ export default function MinebreakGame() {
             {message}
           </output>
           <p className="input-hint">
-            Click to explore · Right-click or press F on a focused tile to flag
+            Click to explore · Drag to orbit · Scroll to zoom · Right-click or F to flag
           </p>
         </section>
 

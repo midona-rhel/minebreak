@@ -8,9 +8,27 @@ import {
   createCliff,
   createBridge,
   createFoliage,
+  createMushroomPatch,
+  createMossBoulder,
   createRoots,
+  createRuneWaystone,
+  createTree,
   disposeObjects,
 } from '../lib/three/asset-kit.ts';
+import {
+  createIslandCliff,
+  createCliffSection,
+  createBeach,
+} from '../lib/three/terrain.ts';
+import {
+  createStoneArch,
+  createWatchtower,
+  createBackdropCliff,
+} from '../lib/three/background-scenery.ts';
+import {
+  createSeagrass,
+  createReefCoral,
+} from '../lib/three/underwater-scenery.ts';
 
 // Three.js ObjectLoader JSON: portable geometry/materials, no texture dependencies.
 const output = new URL('../public/assets/shared/', import.meta.url);
@@ -25,9 +43,22 @@ const assets = {
   'cliff-block': createCliff(),
   'bridge-wood': createBridge(),
   foliage: createFoliage(),
+  'mushroom-patch': createMushroomPatch(),
+  'moss-boulder': createMossBoulder(),
   roots: createRoots(),
+  'rune-waystone': createRuneWaystone(),
+  'tree-mossbound': createTree(),
+  'island-cliff': createIslandCliff(),
+  'cliff-section': createCliffSection(),
+  'beach-sand': createBeach(),
+  'stone-arch': createStoneArch(),
+  watchtower: createWatchtower(),
+  'backdrop-cliff': createBackdropCliff(),
+  seagrass: createSeagrass(),
+  'reef-coral': createReefCoral(),
 };
 for (const [name, asset] of Object.entries(assets)) {
+  asset.name = name;
   // Serialize custom rounded boxes as standard BufferGeometry for ObjectLoader.
   asset.traverse((o) => {
     if (o.isMesh && o.geometry.type === 'RoundedBoxGeometry') {
