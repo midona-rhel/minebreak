@@ -7,8 +7,8 @@ const directory = new URL('../public/assets/shared/', import.meta.url);
 const files = (await readdir(directory)).filter((name) =>
   name.endsWith('.json'),
 );
-test('shared kit contains all ten intended assets', () =>
-  assert.equal(files.length, 10));
+test('shared kit contains all fourteen intended assets', () =>
+  assert.equal(files.length, 14));
 for (const file of files) {
   test(`${file} loads with ObjectLoader and has usable geometry`, async () => {
     const source = JSON.parse(await readFile(new URL(file, directory), 'utf8'));
@@ -28,7 +28,7 @@ for (const file of files) {
     );
     const bounds = new THREE.Box3().setFromObject(object);
     assert.ok(!bounds.isEmpty());
-    assert.ok(bounds.getSize(new THREE.Vector3()).length() < 10);
+    assert.ok(bounds.getSize(new THREE.Vector3()).length() < 20);
     assert.equal(object.name, file.replace('.json', ''));
   });
 }

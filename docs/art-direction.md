@@ -2,7 +2,7 @@
 
 ## Board silhouette
 
-The current direction follows the fantasy diorama reference: a floating island seen through an angled orthographic camera, with chunky moss-covered tiles, warm stone, faceted crystals, coral flags, glowing teal portals, lanterns, and a wooden bridge. Earlier top-down studies remain reference alternatives. The playable grid stays clear of border decoration.
+The current direction follows the fantasy diorama reference: a miniature island in a scenic ocean, with chunky moss-covered tiles, continuous fractured cliffs, sand, trees, single-color refractive crystal clusters, coral cloth flags, glowing teal portals, lanterns, and a wooden bridge. A restrained perspective camera can orbit and zoom; distant water softens outside the board's focal band. Earlier top-down studies remain reference alternatives. The playable grid stays clear of border decoration.
 
 ## Achievable Three.js build
 
@@ -13,7 +13,9 @@ The current direction follows the fantasy diorama reference: a floating island s
 - Keep the board between 8×8 and 10×10 cells so it remains readable on mobile.
 - Frame the grid with layered fractured stone. Restrict roots, crystal clusters, grass tufts and lanterns to the border so the playable cells stay clear.
 - A triggered mine replaces its tile with a stone well, three emissive rings, floating motes, a radial glow shader and a turquoise point light.
-- Use an angled orthographic camera, a warm key light, soft shadows, and a cool rim light.
+- Use an orbitable perspective camera, warm key light, soft shadows, cool rim light, environment reflections, restrained bloom and depth of field. Keep the entire game board within a sharp focal band.
+- Tiles, props and water must have deliberate surface ordering: flat foundation -0.23, tile tops above it, beach at the rock base, sea -2.65. Validate closed cliff topology, matching module seams, and top clearance before adding decoration.
+- Crystal shards lean away from the cluster center; all pieces share one mineral color. Roots and branches taper, and animated cloth remains pinned along the pole.
 
 ## Gameplay readability
 

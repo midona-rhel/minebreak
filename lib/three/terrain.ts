@@ -1,0 +1,383 @@
+import * as THREE from 'three';
+
+/** Shared measurements keep the shore, surf, props and game board aligned. */
+export const TERRAIN = Object.freeze({
+  seaLevel: -2.65,
+  topY: -0.23,
+  topHalfExtent: 5.15,
+  bottomY: -3.3,
+  beachInnerHalfExtent: 4.6,
+  beachOuterHalfExtent: 5.95,
+  shoreHalfExtent: 5.66,
+  sectionWidth: 2,
+});
+
+function noise(t: number, seed = 0) {
+  return (
+    Math.sin(t * 2.7 + seed) * 0.5 +
+    Math.sin(t * 7.3 + seed * 1.31) * 0.3 +
+    Math.sin(t * 13.1 - seed) * 0.2
+  );
+}
+
+function roundedSquareRadius(angle: number, halfExtent: number) {
+  return (
+    halfExtent /
+    Math.pow(
+      Math.abs(Math.cos(angle)) ** 6 + Math.abs(Math.sin(angle)) ** 6,
+      1 / 6,
+    )
+  );
+}
+
+/** World-space ocean contact line; the outer sand apron continues underwater. */
+export function shorelineRadius(angle: number) {
+  return (
+    roundedSquareRadius(angle, TERRAIN.shoreHalfExtent) *
+    (1 + Math.sin(angle * 7) * 0.012 + Math.sin(angle * 13) * 0.006)
+  );
+}
+
+const cliffRings = [
+  { y: -0.23, extent: 5.15, tint: 0x84902b },
+  { y: -0.36, extent: 5.2, tint: 0x747344 },
+  { y: -0.55, extent: 5.09, tint: 0x827763 },
+  { y: -0.83, extent: 5.04, tint: 0x7a7063 },
+  { y: -1.02, extent: 5.01, tint: 0x7a7063 },
+  { y: -1.47, extent: 4.94, tint: 0x726b62 },
+  { y: -1.64, extent: 4.89, tint: 0x726b62 },
+  { y: -2.15, extent: 4.76, tint: 0x696660 },
+  { y: -2.34, extent: 4.68, tint: 0x676561 },
+  { y: -2.75, extent: 4.56, tint: 0x48535a },
+  { y: -3.3, extent: 4.12, tint: 0x374b53 },
+] as const;
+
+function finishGeometry(
+  positions: number[],
+  colors: number[],
+  indices: number[],
+) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(positions, 3),
+  );
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function rockMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    roughness: 0.97,
+    flatShading: true,
+  });
+}
+
+/** A single indexed, watertight landform: no overlapping pillar seams or holes. */
+export function createIslandCliff() {
+  // Broad stone planes, not dense noisy triangles: roughly 65 cm per face.
+  const segments = 64;
+  const positions: number[] = [],
+    colors: number[] = [],
+    indices: number[] = [];
+  // Correlated irregular stone sectors stagger the horizontal fracture heights.
+  // The same shift follows each vertical buttress, keeping all rings ordered.
+  const sectorCount = segments / 2;
+  const hash = (sector: number, salt: number) => {
+    const value =
+      Math.sin(((sector + sectorCount) % sectorCount) * 127.1 + salt * 311.7) *
+      43758.5453;
+    return value - Math.floor(value);
+  };
+  const warpEnvelope = [0, 0.18, 0.65, 1, 1, 1, 1, 1, 0.85, 0.45, 0];
+  cliffRings.forEach((ring, layer) => {
+    for (let i = 0; i < segments; i++) {
+      const a = (i / segments) * Math.PI * 2;
+      const sector = Math.floor(i / 2),
+        atJoint = i % 2 === 0;
+      const sectorSample = (salt: number) =>
+        atJoint
+          ? (hash(sector - 1, salt) + hash(sector, salt)) * 0.5
+          : hash(sector, salt);
+      const yShift = (sectorSample(2) - 0.5) * 0.34;
+      // A joint recess connects adjacent buttresses; ledges occur at different
+      // levels for each block instead of forming full, cake-like circumferences.
+      const ledgeLayer = 3 + Math.floor(hash(sector, 4) * 4);
+      const ledge =
+        layer === ledgeLayer ? 0.19 : layer === ledgeLayer + 1 ? -0.06 : 0;
+      const sectorProjection = (sectorSample(1) - 0.5) * 0.24;
+      const reliefEnvelope =
+        layer === 0
+          ? 0
+          : layer === 1
+            ? 0.15
+            : layer === 2
+              ? 0.55
+              : layer === cliffRings.length - 1
+                ? 0.3
+                : 1;
+      const fracture =
+        reliefEnvelope * (sectorProjection + (atJoint ? -0.07 : 0.09) + ledge);
+      const radius = roundedSquareRadius(a, ring.extent) + fracture;
+      const y = ring.y + yShift * warpEnvelope[layer];
+      positions.push(Math.cos(a) * radius, y, Math.sin(a) * radius);
+      const tone = layer < 2 ? 1 : 0.88 + sectorSample(3) * 0.22;
+      const jointOcclusion = atJoint && layer > 1 ? 0.9 : 1;
+      const ledgeOcclusion = layer === ledgeLayer + 1 ? 0.88 : 1;
+      const tint = new THREE.Color(ring.tint).multiplyScalar(
+        tone * jointOcclusion * ledgeOcclusion,
+      );
+      colors.push(tint.r, tint.g, tint.b);
+      if (layer < cliffRings.length - 1) {
+        const next = (i + 1) % segments,
+          u = layer * segments + i,
+          v = layer * segments + next;
+        // Alternating diagonals avoid long, mechanically repeated columns.
+        if ((i + layer) % 2)
+          indices.push(u, v, u + segments, v, v + segments, u + segments);
+        else indices.push(u, v, v + segments, u, v + segments, u + segments);
+      }
+    }
+  });
+  const topCenter = positions.length / 3;
+  positions.push(0, TERRAIN.topY, 0);
+  const moss = new THREE.Color(0x758027);
+  colors.push(moss.r, moss.g, moss.b);
+  const bottomCenter = positions.length / 3;
+  positions.push(0, TERRAIN.bottomY, 0);
+  const base = new THREE.Color(0x374b53);
+  colors.push(base.r, base.g, base.b);
+  const last = (cliffRings.length - 1) * segments;
+  for (let i = 0; i < segments; i++) {
+    const next = (i + 1) % segments;
+    indices.push(topCenter, next, i, bottomCenter, last + i, last + next);
+  }
+  const mesh = new THREE.Mesh(
+    finishGeometry(positions, colors, indices),
+    rockMaterial(),
+  );
+  mesh.name = 'island-cliff-continuous';
+  mesh.castShadow = mesh.receiveShadow = true;
+  mesh.userData = {
+    segments,
+    rings: cliffRings.length,
+    watertight: true,
+    deckY: TERRAIN.topY,
+    playableHalfExtent: 4,
+  };
+  return mesh;
+}
+
+/** Clockwise side profile. Every section's end edges match exactly at x ±1. */
+export const cliffSectionProfile: readonly (readonly [number, number])[] = [
+  [-0.23, 0],
+  [-0.36, 0.05],
+  [-0.55, -0.08],
+  [-0.83, -0.03],
+  [-1.02, -0.12],
+  [-1.47, -0.16],
+  [-1.64, -0.27],
+  [-2.15, -0.33],
+  [-2.34, -0.46],
+  [-2.75, -0.59],
+  [-3.3, -0.8],
+  [-3.3, -1.35],
+  [-0.23, -1.35],
+];
+
+/** Tile by translating x by sectionWidth; rotation creates other straight walls. */
+export function createCliffSection(seed = 17) {
+  const divisions = 12,
+    n = cliffSectionProfile.length;
+  const positions: number[] = [],
+    colors: number[] = [],
+    indices: number[] = [];
+  for (let column = 0; column <= divisions; column++) {
+    const x =
+      (column / divisions) * TERRAIN.sectionWidth - TERRAIN.sectionWidth / 2;
+    const envelope =
+      column === 0 || column === divisions
+        ? 0
+        : Math.sin((column / divisions) * Math.PI);
+    cliffSectionProfile.forEach(([y, z], row) => {
+      const perturb = envelope * noise(x * 4 + row, seed) * 0.06;
+      positions.push(
+        x,
+        y + (row === 0 || row >= 10 ? 0 : perturb * 0.5),
+        z + (row >= 11 ? 0 : perturb),
+      );
+      const tint = new THREE.Color(
+        cliffRings[Math.min(row, cliffRings.length - 1)].tint,
+      ).multiplyScalar(0.94 + noise(x * 3 + row, seed) * 0.07);
+      colors.push(tint.r, tint.g, tint.b);
+      if (column < divisions) {
+        const a = column * n + row,
+          b = column * n + ((row + 1) % n);
+        indices.push(a, b, a + n, b, b + n, a + n);
+      }
+    });
+  }
+  // Interior centroids close each end without introducing detached surfaces.
+  for (const column of [0, divisions]) {
+    const index = positions.length / 3;
+    positions.push(column === 0 ? -1 : 1, -1.7, -0.9);
+    const tint = new THREE.Color(0x686255);
+    colors.push(tint.r, tint.g, tint.b);
+    for (let i = 0; i < n; i++) {
+      const a = column * n + i,
+        b = column * n + ((i + 1) % n);
+      if (column === 0) indices.push(index, b, a);
+      else indices.push(index, a, b);
+    }
+  }
+  const mesh = new THREE.Mesh(
+    finishGeometry(positions, colors, indices),
+    rockMaterial(),
+  );
+  mesh.name = 'cliff-section';
+  mesh.castShadow = mesh.receiveShadow = true;
+  mesh.userData = {
+    sectionWidth: TERRAIN.sectionWidth,
+    divisions,
+    profileVertices: n,
+  };
+  return mesh;
+}
+
+/** Terraced sand apron fades from dry gold to submerged blue-grey wet sand. */
+export function createBeach() {
+  const segments = 160;
+  const rings = [
+    [4.54, -2.34, 0xbfac79],
+    [4.92, -2.35, 0xd3bd86],
+    [5.28, -2.43, 0xe0c794],
+    [5.48, -2.54, 0xd2bd92],
+    [5.66, -2.65, 0xb5ad8d],
+    [5.95, -2.89, 0x788e85],
+  ];
+  const positions: number[] = [],
+    colors: number[] = [],
+    indices: number[] = [];
+  rings.forEach(([extent, height, color], row) => {
+    for (let i = 0; i < segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+      const radius =
+        roundedSquareRadius(angle, extent) *
+        (1 + Math.sin(angle * 7) * 0.012 + Math.sin(angle * 13) * 0.006);
+      const ripple = row === 4 ? 0 : Math.sin(angle * 31 + row * 1.8) * 0.018;
+      positions.push(
+        Math.cos(angle) * radius,
+        height + ripple,
+        Math.sin(angle) * radius,
+      );
+      const tint = new THREE.Color(color).multiplyScalar(
+        0.98 + Math.sin(angle * 53 + row * 7) * 0.026,
+      );
+      colors.push(tint.r, tint.g, tint.b);
+      if (row < rings.length - 1) {
+        const a = row * segments + i,
+          b = row * segments + ((i + 1) % segments);
+        indices.push(a, b, a + segments, b, b + segments, a + segments);
+      }
+    }
+  });
+  const mesh = new THREE.Mesh(
+    finishGeometry(positions, colors, indices),
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: 1,
+    }),
+  );
+  mesh.name = 'beach-sand';
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+/** Distant fragments stay outside the playable island, rendered in one draw call. */
+export function createFloatingRocks(seed = 918) {
+  let state = seed >>> 0;
+  const rand = () =>
+    (state = (state * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const count = 44;
+  const geometry = new THREE.IcosahedronGeometry(1, 1);
+  const positions = geometry.attributes.position;
+  for (let i = 0; i < positions.count; i++) {
+    const x = positions.getX(i),
+      y = positions.getY(i),
+      z = positions.getZ(i);
+    const variation = 1 + Math.sin(x * 13 + y * 19 + z * 11) * 0.16;
+    positions.setXYZ(i, x * variation, y * variation, z * variation);
+  }
+  geometry.computeVertexNormals();
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.94,
+    flatShading: true,
+  });
+  const rocks = new THREE.InstancedMesh(geometry, material, count);
+  rocks.name = 'floating-rock-fragments';
+  rocks.castShadow = rocks.receiveShadow = true;
+  const poses: {
+    position: THREE.Vector3;
+    scale: THREE.Vector3;
+    rotation: THREE.Euler;
+    phase: number;
+    speed: number;
+  }[] = [];
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + (rand() - 0.5) * 0.11;
+    const distance = roundedSquareRadius(angle, 7.6 + rand() * 5.7);
+    const size = 0.12 + rand() ** 1.5 * 0.52;
+    const position = new THREE.Vector3(
+      Math.cos(angle) * distance,
+      -0.9 + rand() * 3.2,
+      Math.sin(angle) * distance,
+    );
+    poses.push({
+      position,
+      scale: new THREE.Vector3(
+        size * (0.7 + rand() * 0.4),
+        size * (1.15 + rand() * 1.5),
+        size * 0.8,
+      ),
+      rotation: new THREE.Euler(rand(), rand() * Math.PI, rand() * 0.7),
+      phase: rand() * Math.PI * 2,
+      speed: 0.24 + rand() * 0.3,
+    });
+    rocks.setColorAt(
+      i,
+      new THREE.Color(i % 4 === 0 ? 0x938475 : 0x6c7074).multiplyScalar(
+        0.8 + rand() * 0.4,
+      ),
+    );
+  }
+  rocks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  // Fragments bob outside the island but never drift into the camera's focal board.
+  const update = (time: number) => {
+    poses.forEach((pose, i) => {
+      dummy.position.copy(pose.position);
+      dummy.position.y += Math.sin(time * pose.speed + pose.phase) * 0.15;
+      dummy.scale.copy(pose.scale);
+      dummy.rotation.copy(pose.rotation);
+      dummy.rotation.y += Math.sin(time * 0.12 + pose.phase) * 0.07;
+      dummy.updateMatrix();
+      rocks.setMatrixAt(i, dummy.matrix);
+    });
+    rocks.instanceMatrix.needsUpdate = true;
+  };
+  update(0);
+  rocks.computeBoundingSphere();
+  rocks.boundingSphere!.radius += 0.25;
+  const group = new THREE.Group();
+  group.name = 'floating-rocks';
+  group.add(rocks);
+  return { group, update };
+}

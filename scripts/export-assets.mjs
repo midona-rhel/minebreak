@@ -9,8 +9,14 @@ import {
   createBridge,
   createFoliage,
   createRoots,
+  createTree,
   disposeObjects,
 } from '../lib/three/asset-kit.ts';
+import {
+  createIslandCliff,
+  createCliffSection,
+  createBeach,
+} from '../lib/three/terrain.ts';
 
 // Three.js ObjectLoader JSON: portable geometry/materials, no texture dependencies.
 const output = new URL('../public/assets/shared/', import.meta.url);
@@ -26,8 +32,13 @@ const assets = {
   'bridge-wood': createBridge(),
   foliage: createFoliage(),
   roots: createRoots(),
+  'tree-mossbound': createTree(),
+  'island-cliff': createIslandCliff(),
+  'cliff-section': createCliffSection(),
+  'beach-sand': createBeach(),
 };
 for (const [name, asset] of Object.entries(assets)) {
+  asset.name = name;
   // Serialize custom rounded boxes as standard BufferGeometry for ObjectLoader.
   asset.traverse((o) => {
     if (o.isMesh && o.geometry.type === 'RoundedBoxGeometry') {

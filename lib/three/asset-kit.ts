@@ -64,7 +64,10 @@ function bake(group: THREE.Group) {
     const material = child.material as THREE.MeshStandardMaterial;
     if (
       !(material instanceof THREE.MeshStandardMaterial) ||
-      material.transparent
+      material.transparent ||
+      (material instanceof THREE.MeshPhysicalMaterial &&
+        material.transmission > 0) ||
+      child.userData.assetAnimation
     )
       return;
     if (
@@ -169,6 +172,62 @@ function path(points: THREE.Vector3[], radius: number, color: number) {
     color,
   );
 }
+/** A closed, tapered organic branch using the curve's transported tube frames. */
+export function createTaperedBranch(
+  points: THREE.Vector3[],
+  startRadius: number,
+  endRadius: number,
+  color: number,
+) {
+  const curve = new THREE.CatmullRomCurve3(points);
+  const segments = Math.max(16, points.length * 6),
+    sides = 8;
+  const tube = new THREE.TubeGeometry(curve, segments, 1, sides, false);
+  const geometry = new THREE.BufferGeometry().copy(tube);
+  const positions = geometry.getAttribute('position');
+  for (let ring = 0; ring <= segments; ring++) {
+    const t = ring / segments;
+    const center = curve.getPointAt(t);
+    // Slowly narrowing shoulders and a fine tip, never an abruptly cut pipe.
+    const radius =
+      endRadius + (startRadius - endRadius) * Math.pow(1 - t, 1.25);
+    for (let side = 0; side <= sides; side++) {
+      const i = ring * (sides + 1) + side;
+      positions.setXYZ(
+        i,
+        center.x + (positions.getX(i) - center.x) * radius,
+        center.y + (positions.getY(i) - center.y) * radius,
+        center.z + (positions.getZ(i) - center.z) * radius,
+      );
+    }
+  }
+  // Close both ends; buried roots and branches also remain valid standalone assets.
+  const values = Array.from(positions.array);
+  const firstCenter = positions.count,
+    lastCenter = firstCenter + 1;
+  values.push(
+    ...curve.getPointAt(0).toArray(),
+    ...curve.getPointAt(1).toArray(),
+  );
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(values, 3),
+  );
+  geometry.deleteAttribute('normal');
+  geometry.deleteAttribute('uv');
+  const indices = Array.from(geometry.index!.array);
+  const lastRing = segments * (sides + 1);
+  for (let side = 0; side < sides; side++) {
+    indices.push(firstCenter, side, side + 1);
+    indices.push(lastCenter, lastRing + side + 1, lastRing + side);
+  }
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  tube.dispose();
+  const branch = mesh(geometry, color);
+  branch.name = 'tapered-branch';
+  return branch;
+}
 function leaf(length: number, width: number, color: number) {
   const g = new THREE.BufferGeometry();
   g.setAttribute(
@@ -241,7 +300,7 @@ export function createTile(covered = true, variant = 0) {
     chippedSlab(
       0.87,
       0.87,
-      0.23,
+      covered ? 0.27 : 0.23,
       covered ? 0x615235 : 0x87735d,
       variant + 3,
       -0.29,
@@ -265,7 +324,7 @@ export function createTile(covered = true, variant = 0) {
       mossPatch(
         group,
         x,
-        0.187,
+        0.177 + size * 0.1,
         z,
         size,
         [0x869618, 0x9baa27, 0x708211, 0xb0b43b][i % 4],
@@ -281,7 +340,7 @@ export function createTile(covered = true, variant = 0) {
     for (let i = 0; i < 3; i++) {
       const a = r() * Math.PI * 2;
       const l = leaf(0.09, 0.025, 0xa3b33c);
-      l.position.set(Math.cos(a) * 0.32, 0.18, Math.sin(a) * 0.32);
+      l.position.set(Math.cos(a) * 0.32, 0.176, Math.sin(a) * 0.32);
       l.rotation.y = a;
       group.add(l);
     }
@@ -290,7 +349,7 @@ export function createTile(covered = true, variant = 0) {
         new THREE.DodecahedronGeometry(0.027, 0),
         0xaca16c,
         (r() - 0.5) * 0.72,
-        0.19,
+        0.184,
         (r() - 0.5) * 0.72,
       );
       stone.scale.y = 0.45;
@@ -334,7 +393,7 @@ export function createFlag() {
       new THREE.CylinderGeometry(0.115, 0.145, 0.055, 8),
       0x82603c,
       0,
-      0.22,
+      0.195,
       0,
     ),
   );
@@ -343,30 +402,83 @@ export function createFlag() {
       new THREE.CylinderGeometry(0.027, 0.032, 0.72, 7),
       0x88552d,
       0,
-      0.59,
+      0.577,
       0,
     ),
   );
   group.add(mesh(new THREE.SphereGeometry(0.044, 6, 4), 0xe0ad52, 0, 0.98, 0));
-  const geometry = new THREE.PlaneGeometry(0.37, 0.3, 5, 3);
+  const plane = new THREE.PlaneGeometry(0.39, 0.3, 24, 12);
+  // Export full attributes rather than PlaneGeometry's parameter-only JSON.
+  const geometry = new THREE.BufferGeometry().copy(plane);
+  plane.dispose();
   const pos = geometry.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i) + 0.185,
+    const x = pos.getX(i) + 0.195,
       y = pos.getY(i);
-    pos.setXYZ(i, x, y * (1 - x * 0.75), Math.sin(x * 13 + y * 5) * x * 0.22);
+    pos.setXYZ(i, x, y * (1 - x * 0.28), 0);
   }
-  geometry.computeVertexNormals();
+  // The custom attribute survives ObjectLoader export, so shared flags animate too.
+  geometry.setAttribute('restPosition', pos.clone());
+  if (pos instanceof THREE.BufferAttribute)
+    pos.setUsage(THREE.DynamicDrawUsage);
   const flag = mesh(geometry, palette.flag, 0.025, 0.79, 0);
+  flag.name = 'flag-cloth';
+  flag.userData.assetAnimation = 'cloth';
+  flag.material.flatShading = false;
+  flag.material.roughness = 0.73;
   flag.material.side = THREE.DoubleSide;
   group.add(flag);
-  for (const y of [0.7, 0.91])
-    group.add(
-      mesh(new THREE.TorusGeometry(0.034, 0.01, 4, 8), 0xd7b575, 0, y, 0),
+  for (const y of [0.7, 0.91]) {
+    const tie = mesh(
+      new THREE.TorusGeometry(0.033, 0.009, 6, 12),
+      0xd7b575,
+      0,
+      y,
+      0,
     );
-  return bake(group);
+    tie.rotation.x = Math.PI / 2;
+    group.add(tie);
+  }
+  const result = bake(group);
+  updateAssetAnimations(result, 0);
+  return result;
+}
+/** Call once per frame with elapsed seconds; cloth remains pinned along its pole. */
+export function updateAssetAnimations(
+  root: THREE.Object3D,
+  time: number,
+  phase = 0,
+) {
+  root.traverse((child) => {
+    if (
+      !(child instanceof THREE.Mesh) ||
+      child.userData.assetAnimation !== 'cloth'
+    )
+      return;
+    const geometry = child.geometry;
+    const rest = geometry.getAttribute('restPosition');
+    const position = geometry.getAttribute('position');
+    if (!rest || !position) return;
+    for (let i = 0; i < position.count; i++) {
+      const x = rest.getX(i),
+        y = rest.getY(i);
+      const free = x / 0.39;
+      const wave = Math.sin(x * 17 - time * 3.5 + phase + y * 4);
+      const ripple = Math.sin(x * 30 - time * 5.1 + phase + y * 9);
+      position.setXYZ(
+        i,
+        x - free * (0.014 + 0.009 * Math.sin(time * 2.2 + phase)),
+        y - free * free * 0.019 + wave * free * 0.008,
+        free * (wave * 0.052 + ripple * 0.009),
+      );
+    }
+    position.needsUpdate = true;
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+  });
 }
 function crystalPrism(radius: number, height: number, color: number) {
-  const n = 5,
+  const n = 6,
     points: number[] = [],
     colors: number[] = [];
   const base = new THREE.Color(color);
@@ -386,10 +498,12 @@ function crystalPrism(radius: number, height: number, color: number) {
       [a, d, b],
       [b, d, c],
       [d, tip, c],
+      [a, b, new THREE.Vector3(0, 0, 0)],
     ]) {
       const tint = base
         .clone()
-        .multiplyScalar([0.64, 1.08, 0.83, 1.28, 0.95][i]);
+        .lerp(new THREE.Color(0xffffff), 0.22)
+        .multiplyScalar([0.9, 1.02, 0.95, 1.08, 0.98, 1][i]);
       for (const p of triangle) {
         points.push(p.x, p.y, p.z);
         colors.push(tint.r, tint.g, tint.b);
@@ -403,77 +517,152 @@ function crystalPrism(radius: number, height: number, color: number) {
   );
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.computeVertexNormals();
-  const material = mat(0xffffff);
-  material.vertexColors = true;
-  material.roughness = 0.27;
+  const material = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    flatShading: true,
+    roughness: 0.095,
+    metalness: 0,
+    transmission: 0.62,
+    thickness: radius * 2.5,
+    ior: 1.52,
+    clearcoat: 1,
+    clearcoatRoughness: 0.07,
+    attenuationColor: new THREE.Color(color).lerp(
+      new THREE.Color(0xffffff),
+      0.35,
+    ),
+    attenuationDistance: 1.6,
+    dispersion: 0.35,
+    emissive: color,
+    emissiveIntensity: 0.85,
+    envMapIntensity: 1.35,
+  });
   const prism = new THREE.Mesh(geometry, material);
   prism.castShadow = true;
   prism.receiveShadow = true;
   return prism;
 }
-export function createCrystal() {
+export function createCrystal(color = palette.crystal) {
   const group = new THREE.Group();
   group.name = 'crystal-cluster';
   const r = random(541);
   const crystals = [
-    [-0.02, 0, 1.5, 0.25, 0],
-    [-0.38, 0.1, 0.88, 0.16, -0.32],
-    [0.31, 0.13, 0.98, 0.18, 0.35],
-    [0.46, -0.23, 0.58, 0.15, 0.5],
-    [-0.14, 0.31, 0.57, 0.13, -0.17],
+    [0, 0, 1.5, 0.235, 0],
+    [-0.37, 0.05, 0.96, 0.145, 0.3],
+    [0.31, 0.2, 0.84, 0.14, 0.33],
+    [-0.18, -0.36, 0.65, 0.12, 0.4],
+    [0.1, 0.43, 0.52, 0.11, 0.43],
   ];
+  const up = new THREE.Vector3(0, 1, 0);
+  const orientOutward = (
+    crystal: THREE.Mesh,
+    x: number,
+    z: number,
+    tilt: number,
+  ) => {
+    const radial = new THREE.Vector3(x, 0, z).normalize();
+    const direction = new THREE.Vector3(
+      radial.x * tilt,
+      1,
+      radial.z * tilt,
+    ).normalize();
+    crystal.quaternion.setFromUnitVectors(up, direction);
+    crystal.position.set(x, -0.045, z);
+  };
   for (const [x, z, h, w, tilt] of crystals) {
-    const c = crystalPrism(w, h, palette.crystal);
-    c.position.set(x, 0, z);
-    c.rotation.z = tilt;
+    const c = crystalPrism(w, h, color);
+    c.name = tilt ? 'crystal-satellite' : 'crystal-hero';
+    orientOutward(c, x, z, tilt);
     group.add(c);
   }
-  for (let i = 0; i < 3; i++) {
-    const c = crystalPrism(0.11, 0.4 + i * 0.13, palette.blue);
-    c.position.set(0.5 + i * 0.14, 0, -0.2 + i * 0.12);
-    c.rotation.z = -0.14 + i * 0.19;
+  // Smaller shards share the same mineral color and radiate from the same socket.
+  for (const [x, z, height, radius, tilt] of [
+    [0.39, -0.29, 0.69, 0.115, 0.32],
+    [0.57, -0.03, 0.51, 0.09, 0.45],
+    [0.2, -0.52, 0.46, 0.085, 0.45],
+  ]) {
+    const c = crystalPrism(radius, height, color);
+    c.name = 'crystal-satellite';
+    orientOutward(c, x, z, tilt);
     group.add(c);
   }
-  for (let i = 0; i < 12; i++) {
-    const a = r() * Math.PI * 2;
+  // A broad, closed level socket buries even the outward-leaning base caps.
+  const socket = mesh(
+    new THREE.CylinderGeometry(0.73, 0.67, 0.13, 7),
+    0x5d5657,
+    0.03,
+    -0.055,
+    -0.015,
+  );
+  socket.scale.z = 0.9;
+  group.add(socket);
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2 + 0.16;
     const rock = mesh(
-      new THREE.DodecahedronGeometry(0.12 + r() * 0.08, 0),
+      new THREE.DodecahedronGeometry(0.1 + r() * 0.05, 0),
       i % 2 ? 0x74675d : 0x85776c,
-      Math.cos(a) * 0.5,
+      Math.cos(a) * 0.4,
       -0.035,
-      Math.sin(a) * 0.4,
+      Math.sin(a) * 0.35,
     );
     rock.scale.y = 0.6;
     group.add(rock);
     mossPatch(
       group,
-      Math.cos(a) * 0.5,
-      0.015,
-      Math.sin(a) * 0.5,
-      0.15,
+      Math.cos(a) * 0.4,
+      -0.005,
+      Math.sin(a) * 0.35,
+      0.1,
       0x6d7f28,
     );
   }
+  const glow = new THREE.PointLight(
+    new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.22),
+    3.0,
+    2.8,
+    2,
+  );
+  glow.position.set(0, 0.55, 0);
+  group.add(glow);
+  // A soft optical halo preserves readable glass facets instead of overexposing them.
+  const aura = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.55, 1.95),
+    new THREE.ShaderMaterial({
+      uniforms: { tint: { value: new THREE.Color(color).multiplyScalar(1.8) } },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader:
+        'varying vec2 vUv; void main(){vUv=uv;vec4 center=modelViewMatrix*vec4(0.,.62,0.,1.);vec2 scale=vec2(length(modelMatrix[0].xyz),length(modelMatrix[1].xyz));center.xy+=position.xy*scale;gl_Position=projectionMatrix*center;}',
+      fragmentShader:
+        'varying vec2 vUv;uniform vec3 tint;void main(){vec2 p=(vUv-.5)*2.;float a=exp(-dot(p,p)*4.)*.17*(1.-smoothstep(.65,1.,length(p)));gl_FragColor=vec4(tint,a);}',
+    }),
+  );
+  aura.name = 'crystal-glow';
+  aura.userData.noDofDepth = true;
+  group.add(aura);
   return bake(group);
 }
 export function createLantern() {
   const group = new THREE.Group();
   group.name = 'lantern-stone';
   group.add(block(0.64, 0.14, 0.6, 0x6e6451, 0, 0.04, 0));
+  // Continuous mortar core behind a running-bond stone facing.
+  group.add(block(0.425, 0.64, 0.425, 0x665c49, 0, 0.42, 0, 0.008));
   for (let row = 0; row < 4; row++) {
     const y = 0.18 + row * 0.16;
-    for (const x of [-0.12, 0.12]) {
+    for (const offset of [-0.116, 0.116]) {
       const b = block(
-        0.225,
+        row % 2 ? 0.45 : 0.225,
         0.148,
-        0.4,
+        row % 2 ? 0.225 : 0.45,
         row % 2 ? 0x8b7959 : 0x9c8661,
-        x,
+        row % 2 ? 0 : offset,
         y,
-        0,
+        row % 2 ? offset : 0,
         0.026,
       );
-      b.rotation.y = row % 2 ? Math.PI / 2 : 0;
       group.add(b);
     }
   }
@@ -489,7 +678,7 @@ export function createLantern() {
   group.add(block(0.58, 0.13, 0.56, 0x74604b, 0, 1.28, 0));
   group.add(block(0.43, 0.1, 0.4, 0x948065, 0, 1.39, 0));
   for (const z of [-0.15, 0.12])
-    mossPatch(group, 0.24, 0.14, z, 0.17, 0x7c8520);
+    mossPatch(group, 0.24, 0.124, z, 0.17, 0x7c8520);
   const light = new THREE.PointLight(0xffb037, 4, 3.5);
   light.position.y = 1.0;
   group.add(light);
@@ -500,10 +689,19 @@ export function createPortal() {
   group.name = 'portal-teal';
   group.add(
     mesh(
-      new THREE.CylinderGeometry(0.43, 0.4, 0.27, 16),
+      new THREE.CylinderGeometry(0.43, 0.4, 0.27, 24, 1, true),
       0x163239,
       0,
       -0.11,
+      0,
+    ),
+  );
+  group.add(
+    mesh(
+      new THREE.CylinderGeometry(0.4, 0.4, 0.025, 24),
+      0x163239,
+      0,
+      -0.24,
       0,
     ),
   );
@@ -671,28 +869,132 @@ export function createFoliage(variant = 0) {
 export function createRoots(variant = 0) {
   const group = new THREE.Group();
   group.name = 'roots';
-  const r = random(variant + 18);
+  const sway = Math.sin(variant * 1.7) * 0.06;
   const main = [
     new THREE.Vector3(-0.35, 0.03, -0.2),
     new THREE.Vector3(0.08, -0.12, 0.08),
     new THREE.Vector3(0.3, -0.48, 0.18),
-    new THREE.Vector3(0.14, -0.9, 0.19),
-    new THREE.Vector3(-0.04, -1.3, 0.23),
-    new THREE.Vector3(0.16, -1.75, 0.2),
+    new THREE.Vector3(0.14 + sway, -0.9, 0.19),
+    new THREE.Vector3(0.05 + sway, -1.3, 0.2),
+    new THREE.Vector3(0.13 + sway, -1.75, 0.18),
   ];
-  group.add(path(main, 0.067, 0x765027));
-  const branch = main
-    .slice(0, 3)
-    .concat([
-      new THREE.Vector3(0.57, -0.76, 0.25),
-      new THREE.Vector3(0.65, -1.1, 0.3),
-    ]);
-  group.add(path(branch, 0.034, 0x93703a));
-  for (let i = 0; i < 5; i++) {
-    const l = leaf(0.17, 0.06, i % 2 ? 0x718724 : 0x92a039);
-    l.position.set(0.12 + r() * 0.12, -0.15 - i * 0.2, 0.25);
-    l.rotation.set(-0.6, 1 + i, 0);
+  const curve = new THREE.CatmullRomCurve3(main);
+  group.add(createTaperedBranch(main, 0.105, 0.006, 0x765027));
+  const fork = curve.getPointAt(0.4);
+  const branch = [
+    fork,
+    fork.clone().add(new THREE.Vector3(0.17, -0.15, 0.01)),
+    fork.clone().add(new THREE.Vector3(0.29, -0.4, 0.02)),
+    fork.clone().add(new THREE.Vector3(0.3, -0.63, 0)),
+  ];
+  group.add(createTaperedBranch(branch, 0.043, 0.003, 0x93703a));
+  for (let i = 0; i < 3; i++) {
+    const t = 0.2 + i * 0.18;
+    const radius = 0.006 + 0.099 * Math.pow(1 - t, 1.25);
+    const l = leaf(0.13, 0.045, i % 2 ? 0x718724 : 0x92a039);
+    l.position.copy(curve.getPointAt(t));
+    l.position.z += radius * 0.7;
+    l.rotation.set(-0.3, i % 2 ? 0.8 : -0.8, 0);
     group.add(l);
+  }
+  return bake(group);
+}
+/** Compact sculpted tree: approximately 1.4 wide and 2.5 high, rooted at y=0. */
+export function createTree(variant = 0) {
+  const group = new THREE.Group();
+  group.name = 'tree-mossbound';
+  const r = random(variant * 151 + 901);
+  const lean = (r() - 0.5) * 0.16;
+  const trunk = [
+    new THREE.Vector3(0, -0.02, 0),
+    new THREE.Vector3(-0.06, 0.35, 0.015),
+    new THREE.Vector3(lean, 0.84, -0.025),
+    new THREE.Vector3(lean + 0.07, 1.3, 0.03),
+    new THREE.Vector3(lean - 0.03, 1.83, 0),
+  ];
+  const trunkCurve = new THREE.CatmullRomCurve3(trunk);
+  group.add(createTaperedBranch(trunk, 0.17, 0.025, 0x695035));
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.2;
+    group.add(
+      createTaperedBranch(
+        [
+          trunkCurve.getPointAt(0.08),
+          new THREE.Vector3(Math.cos(a) * 0.19, 0.025, Math.sin(a) * 0.19),
+          new THREE.Vector3(
+            Math.cos(a + 0.22) * 0.38,
+            -0.025,
+            Math.sin(a + 0.22) * 0.38,
+          ),
+        ],
+        0.063 + r() * 0.012,
+        0.004,
+        i % 2 ? 0x85633c : 0x725036,
+      ),
+    );
+  }
+  const crownColors =
+    variant % 3 === 2
+      ? [0x547333, 0x72913c, 0x8da545, 0xa2b653]
+      : [0x587e31, 0x739439, 0x91aa46, 0xa2b94f];
+  for (let i = 0; i < 7; i++) {
+    const a = i * 2.4 + variant;
+    const reach = i === 6 ? 0 : 0.29 + r() * 0.12;
+    const y = i === 6 ? 2.12 : 1.44 + (i % 3) * 0.23;
+    const x = lean + Math.cos(a) * reach;
+    const z = Math.sin(a) * reach;
+    if (i < 6) {
+      group.add(
+        createTaperedBranch(
+          [
+            trunkCurve.getPointAt(0.42 + i * 0.047),
+            new THREE.Vector3(x * 0.65, y - 0.35, z * 0.7),
+            new THREE.Vector3(x, y - 0.05, z),
+          ],
+          0.052 - (i % 3) * 0.006,
+          0.01,
+          i % 2 ? 0x7a5837 : 0x62492f,
+        ),
+      );
+    }
+    const crown = fracturedRock(
+      0.83 + r() * 0.13,
+      0.66 + r() * 0.1,
+      0.76 + r() * 0.1,
+      variant * 13 + i + 44,
+      crownColors[i % 4],
+    );
+    crown.position.set(x, y, z);
+    crown.rotation.y = a;
+    group.add(crown);
+    // Small clustered lobes give each silhouette leafy edges rather than spheres.
+    for (let j = 0; j < 3; j++) {
+      const angle = a + j * 2.1;
+      const lobe = fracturedRock(
+        0.32,
+        0.28,
+        0.32,
+        i * 31 + j + variant,
+        crownColors[(i + j + 1) % 4],
+      );
+      lobe.position.set(
+        x + Math.cos(angle) * 0.29,
+        y + 0.12 + r() * 0.11,
+        z + Math.sin(angle) * 0.27,
+      );
+      group.add(lobe);
+    }
+  }
+  for (let i = 0; i < 8; i++) {
+    const a = i * 2.4;
+    mossPatch(
+      group,
+      Math.cos(a) * 0.23,
+      0.02,
+      Math.sin(a) * 0.23,
+      0.055 + r() * 0.055,
+      crownColors[i % 4],
+    );
   }
   return bake(group);
 }
@@ -716,33 +1018,35 @@ export function createBridge() {
     plank.rotation.z = (r() - 0.5) * 0.045;
     group.add(plank);
     for (const x of [-0.4, 0.4])
-      group.add(
+      plank.add(
         mesh(
           new THREE.CylinderGeometry(0.017, 0.017, 0.012, 6),
           0x503c2b,
           x,
-          y + 0.073,
-          z,
+          0.066,
+          0,
         ),
       );
     for (let n = 0; n < 2; n++)
-      group.add(
+      plank.add(
         path(
           [
-            new THREE.Vector3(-0.42, y + 0.074, z - 0.055 + n * 0.1),
-            new THREE.Vector3(-0.12, y + 0.077, z - 0.04 + n * 0.1),
-            new THREE.Vector3(0.38, y + 0.074, z - 0.056 + n * 0.1),
+            new THREE.Vector3(-0.42, 0.066, -0.055 + n * 0.1),
+            new THREE.Vector3(-0.12, 0.067, -0.04 + n * 0.1),
+            new THREE.Vector3(0.38, 0.066, -0.056 + n * 0.1),
           ],
           0.0045,
           0x674020,
         ),
       );
   }
-  for (const x of [-0.64, 0.64]) {
+  const deckY = (z: number) => -0.04 - Math.sin((z * Math.PI) / 2) * 0.13;
+  for (const x of [-0.61, 0.61]) {
     for (const z of [0, 1, 2]) {
-      group.add(block(0.13, 0.7, 0.13, 0x76502a, x, 0.22, z, 0.014));
-      group.add(block(0.17, 0.08, 0.17, 0xb58244, x, 0.61, z, 0.025));
-      for (const y of [0.28, 0.35, 0.42]) {
+      const surface = deckY(z);
+      group.add(block(0.13, 0.7, 0.13, 0x76502a, x, surface + 0.28, z, 0.014));
+      group.add(block(0.17, 0.08, 0.17, 0xb58244, x, surface + 0.67, z, 0.025));
+      for (const y of [surface + 0.4, surface + 0.45, surface + 0.5]) {
         const tie = mesh(
           new THREE.TorusGeometry(0.1, 0.019, 4, 9),
           0xd0a55b,
@@ -757,14 +1061,25 @@ export function createBridge() {
     group.add(
       path(
         [
-          new THREE.Vector3(x, 0.46, 0),
-          new THREE.Vector3(x, 0.33, 0.5),
-          new THREE.Vector3(x, 0.46, 1),
-          new THREE.Vector3(x, 0.33, 1.5),
-          new THREE.Vector3(x, 0.46, 2),
+          new THREE.Vector3(x, deckY(0) + 0.5, 0),
+          new THREE.Vector3(x, deckY(0.5) + 0.46, 0.5),
+          new THREE.Vector3(x, deckY(1) + 0.5, 1),
+          new THREE.Vector3(x, deckY(1.5) + 0.46, 1.5),
+          new THREE.Vector3(x, deckY(2) + 0.5, 2),
         ],
         0.031,
         0xbd8d47,
+      ),
+    );
+  }
+  for (const x of [-0.48, 0.48]) {
+    group.add(
+      path(
+        [0, 0.5, 1, 1.5, 2].map(
+          (z) => new THREE.Vector3(x, deckY(z) - 0.086, z),
+        ),
+        0.031,
+        0x76552f,
       ),
     );
   }
@@ -775,12 +1090,31 @@ export function disposeObjects(root: THREE.Object3D) {
     materials = new Set<THREE.Material>(),
     textures = new Set<THREE.Texture>();
   root.traverse((o) => {
-    if (o instanceof THREE.Mesh) {
+    if (
+      o instanceof THREE.Mesh ||
+      o instanceof THREE.Points ||
+      o instanceof THREE.Line
+    ) {
       geometries.add(o.geometry);
       for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
         materials.add(m);
-        if (m.map) textures.add(m.map);
+        // Collect all material texture slots, including physical transmission maps.
+        for (const value of Object.values(m)) {
+          if (value instanceof THREE.Texture) textures.add(value);
+        }
+        if (m instanceof THREE.ShaderMaterial) {
+          for (const uniform of Object.values(m.uniforms)) {
+            if (uniform.value instanceof THREE.Texture)
+              textures.add(uniform.value);
+            if (Array.isArray(uniform.value)) {
+              for (const value of uniform.value) {
+                if (value instanceof THREE.Texture) textures.add(value);
+              }
+            }
+          }
+        }
       }
+      if (o instanceof THREE.InstancedMesh) o.dispose();
     }
   });
   geometries.forEach((g) => g.dispose());
