@@ -1,0 +1,74 @@
+/* This module takes over the host viewport; other minigames keep their own layout. */
+.encounter:has(.wack-game) { position: fixed; inset: 0; transform: none; translate: none; display: block; width: 100vw; max-width: none; height: 100svh; max-height: none; padding: 0; gap: 0; overflow: hidden; border: 0; border-radius: 0; background: #fff0c8; color: #281712; }
+.encounter:has(.wack-game) > [data-slot="dialog-title"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.encounter:has(.wack-game) > .harness-cancel { position: absolute; right: 18px; bottom: 18px; z-index: 60; margin: 0; min-height: 46px; padding: 10px 16px; border: 2px solid #281712; border-radius: 12px; background: #fff8df; color: #281712; font-size: 1rem; box-shadow: 0 3px 0 #281712; }
+.wack-game { --wack-red: #a51d20; --wack-yellow: #ffcf32; position: relative; width: 100%; height: 100%; color: #281712; font-family: Arial, Helvetica, sans-serif; text-align: left; outline: none; }
+.wack-game * { box-sizing: border-box; }
+.wack-game:focus-visible { outline: 4px solid #215df0; outline-offset: -4px; }
+.wack-header { position: absolute; top: 18px; left: 20px; z-index: 45; pointer-events: none; }
+.wack-header h2 { margin: 0; color: #a51d20; font-size: clamp(1.25rem, 3vw, 2rem); font-weight: 950; letter-spacing: -.045em; text-shadow: 1px 1px #fff8df; }
+.wack-header h2 span { font-size: 1rem; vertical-align: top; }
+.wack-header .wack-eyebrow, .wack-shift-label { display: none; }
+.wack-scoreboard { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 45; display: grid; grid-template-columns: repeat(3, 1fr); width: 360px; padding: 3px; background: #fff8df; border: 2px solid #281712; border-radius: 10px; }
+.wack-scoreboard > div { text-align: center; padding: 0 6px; white-space: nowrap; }
+.wack-scoreboard > div + div { border-left: 1px solid #a38a61; }
+.wack-scoreboard span { display: block; font-size: .875rem; font-weight: 800; }
+.wack-scoreboard strong { font-size: 1.25rem; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.wack-scoreboard small { font-size: 1rem; }
+.wack-stage { position: absolute; inset: 0 0 76px; overflow: hidden; isolation: isolate; background: #ffedc0 url('/assets/minigames/eeron36/kitchen.png') center / cover no-repeat; }
+/* All targets fit in world x100..700; the camera cuts below the mouth at y380. */
+.wack-camera { position: absolute; left: -16.666667%; top: 0; width: 133.333334%; height: 126.315789%; }
+.wack-sprite, .wack-animation-sprite { position: relative; display: block; width: 100%; height: 100%; overflow: hidden; }
+.wack-sprite img { position: absolute; width: 400%; height: 200%; max-width: none; pointer-events: none; }
+.wack-animation-sprite img { position: absolute; width: 200%; height: 200%; max-width: none; pointer-events: none; }
+.wack-drop { position: absolute; aspect-ratio: 1; transform: translate(-50%, -50%); border: 2px solid transparent; border-radius: 50%; filter: drop-shadow(0 5px 2px #57331530); }
+.wack-drop-bad { border: 3px dashed #5c174b; background: #f7dfef; }
+.wack-wrong { position: absolute; right: -2px; top: -6px; color: #fff; background: #5c174b; border-radius: 50%; width: 24px; height: 24px; font-size: 23px; line-height: 22px; text-align: center; }
+.wack-drop-mystery { border: 3px solid #281712; border-radius: 12px; background: #ffcf32; }
+.wack-question { position: absolute; right: -4px; top: -8px; color: #281712; background: #fff8df; border: 2px solid #281712; border-radius: 50%; width: 26px; height: 26px; line-height: 22px; text-align: center; }
+.wack-character { position: absolute; aspect-ratio: 1; transform: translate(-50%, -50%); pointer-events: none; z-index: 10; }
+.wack-thrower { position: absolute; width: 24%; max-width: 300px; aspect-ratio: 1; left: 52%; transform: translate(-70%, -40%); z-index: 15; transform-origin: bottom center; }
+.wack-cover { position: absolute; inset: 0; z-index: 50; display: grid; place-items: center; padding: 95px 18px 85px; background: #fff5d8ed; overflow: auto; }
+.wack-instructions { width: min(500px, 100%); margin: auto; padding: 20px; border: 3px solid #281712; border-radius: 18px; background: #fff8df; box-shadow: 6px 6px 0 #a51d20; text-align: center; }
+.wack-instructions h3 { margin: 4px 0 12px; font-size: clamp(2rem, 6vw, 3.5rem); font-weight: 950; line-height: 1; letter-spacing: -.035em; }
+.wack-instructions p { margin: 8px 0; font-size: 1rem; line-height: 1.35; }
+.wack-instructions .wack-eyebrow { color: #a51d20; font-size: .875rem; font-weight: 800; letter-spacing: .05em; }
+.wack-instructions .wack-growth-rule, .wack-instructions .wack-key-hint { font-size: .875rem; }
+.wack-penalty { padding: 8px; border: 2px solid #a51d20; border-radius: 8px; background: #fff0c8; }
+.wack-risk { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 12px auto; font-size: .875rem; line-height: 1.4; }
+.wack-risk > .wack-sprite { flex: 0 0 58px; height: 58px; }
+.wack-risk span { text-align: left; }
+.wack-game button { cursor: pointer; border: 2px solid #281712; border-radius: 10px; font-weight: 850; min-height: 46px; }
+.wack-game button:focus-visible, .encounter:has(.wack-game) > .harness-cancel:focus-visible { outline: 4px solid #215df0; outline-offset: -5px; }
+.wack-start { padding: 12px 32px; background: #a51d20; color: #fff9e9; box-shadow: 3px 3px 0 #281712; font-size: 1.1rem; }
+.wack-game button:hover:not(:disabled) { filter: brightness(1.1); }
+.wack-game button:disabled { opacity: .45; cursor: default; }
+.wack-feedback { position: absolute; top: 18px; right: 20px; z-index: 40; max-width: 45%; padding: 4px 9px; color: #281712; background: #fff8dfdd; border-radius: 8px; font-size: .875rem; font-weight: 800; text-align: center; }
+.wack-bottom { display: contents; }
+.wack-controls { position: absolute; left: 18px; bottom: 18px; z-index: 45; display: flex; gap: 7px; }
+.wack-controls button { min-width: 54px; background: #ffcf32; font-size: 1.7rem; touch-action: none; user-select: none; box-shadow: 0 3px 0 #281712; }
+.wack-growth, .wack-meal, .wack-fine-print { display: none; }
+.wack-bite { position: absolute; transform: translate(-50%, -50%); z-index: 35; white-space: nowrap; font-size: clamp(1rem, 3vw, 1.75rem); font-weight: 950; color: #281712; background: #ffcf32; padding: 5px 12px; border: 2px solid #281712; border-radius: 10px; animation: wack-bite-rise .55s ease-out both; }
+.wack-bite-bad { color: #fff; background: #5c174b; }
+.wack-toss { animation: wack-toss .36s cubic-bezier(.22,.7,.3,1); }
+.wack-stopped * { animation-play-state: paused !important; }
+@keyframes wack-bite-rise { 0% { opacity: 0; transform: translate(-50%, 0); } 15%, 65% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -18px); } }
+@keyframes wack-toss { 0% { transform: translate(-70%, -40%) rotate(-6deg); } 50% { transform: translate(-70%, calc(-40% + 4px)) rotate(4deg); } 100% { transform: translate(-70%, -40%); } }
+@media (max-width: 960px) {
+  .wack-scoreboard { bottom: 74px; width: min(440px, calc(100% - 20px)); }
+  .wack-stage { bottom: 132px; }
+}
+@media (max-width: 640px) {
+  .wack-header { display: none; }
+
+  .wack-feedback { top: 10px; right: 12px; max-width: 54%; }
+  .wack-thrower { width: 34%; }
+  .wack-controls { left: 10px; bottom: 12px; gap: 4px; }
+  .wack-controls button { min-width: 42px; }
+  .encounter:has(.wack-game) > .harness-cancel { right: 10px; bottom: 12px; padding-inline: 9px; font-size: .875rem; }
+}
+@media (prefers-reduced-motion: reduce) { .wack-game *, .encounter:has(.wack-game) { animation: none; transition: none; } }
+
+
+.wack-pose { position: relative; display: block; width: 100%; height: 100%; }
+.wack-pose > span { position: absolute; inset: 0; }
