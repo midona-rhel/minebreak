@@ -2,18 +2,18 @@
 
 ## Board silhouette
 
-The minefield is a flat square board shown from a fixed 90-degree top-down orthographic camera. It should read like clean 2D game art even though the tiles use simple 3D geometry. The grid fills the view and decoration never obscures a cell.
+The current direction follows the fantasy diorama reference: a floating island seen through an angled orthographic camera, with chunky moss-covered tiles, warm stone, faceted crystals, coral flags, glowing teal portals, lanterns, and a wooden bridge. Earlier top-down studies remain reference alternatives. The playable grid stays clear of border decoration.
 
 ## Achievable Three.js build
 
-- Build each cell from one shallow beveled box with two states: raised grass cover and recessed stone reveal.
-- Use a shared `MeshToonMaterial` palette with one shadow step and one highlight step.
+- Build cells from chipped, beveled slabs with raised moss cover and recessed stone reveal. Add seeded moss clumps, tiny leaves, edge cracks and stone flecks without obscuring the numbers.
+- Use a shared flat-shaded `MeshStandardMaterial` palette, warm directional light, and cool ambient/rim lighting.
 - Render numbers as flat sprite or signed-distance-field text slightly above revealed cells.
-- Use instanced meshes for covered cells, revealed cells, flags, and repeated cliff blocks.
+- Each asset uses an independent group for reuse and export, with opaque detail merged into a vertex-colored mesh. Consider instancing repeated parts after profiling larger boards.
 - Keep the board between 8×8 and 10×10 cells so it remains readable on mobile.
-- Frame the grid with a reusable dark-stone border kit. Restrict roots, crystal clusters, grass tufts, and one lantern to the border so the playable cells stay clear.
-- A triggered mine removes its tile top and reveals a circular portal made from two emissive rings and a simple particle emitter.
-- Use one orthographic camera, one directional light, and short uniform shadows cast toward the lower right.
+- Frame the grid with layered fractured stone. Restrict roots, crystal clusters, grass tufts and lanterns to the border so the playable cells stay clear.
+- A triggered mine replaces its tile with a stone well, three emissive rings, floating motes, a radial glow shader and a turquoise point light.
+- Use an angled orthographic camera, a warm key light, soft shadows, and a cool rim light.
 
 ## Gameplay readability
 
@@ -26,13 +26,13 @@ The minefield is a flat square board shown from a fixed 90-degree top-down ortho
 
 ## Palette
 
-| Role | Color |
-| --- | --- |
-| Grass | `#8DAA20` |
-| Stone | `#B9A27B` |
-| Portal | `#18D9D0` |
+| Role    | Color     |
+| ------- | --------- |
+| Grass   | `#8DAA20` |
+| Stone   | `#B9A27B` |
+| Portal  | `#18D9D0` |
 | Warning | `#F04E3E` |
 | Crystal | `#AE55E8` |
-| Shadow | `#1D2741` |
+| Shadow  | `#1D2741` |
 
-The current balanced top-down concept is stored at `public/concepts/minebreak-board-v3-balanced.png`. The simpler top-down study and earlier isometric exploration remain beside it for comparison.
+Studies are stored at `public/concepts/`. Runtime source assets live in `lib/three/asset-kit.ts` with portable exports in `public/assets/shared/`.
