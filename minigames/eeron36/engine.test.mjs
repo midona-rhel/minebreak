@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { awardRunXP, createEncounterContext, resolveEncounterStats, RUN_STAT_LIMITS } from '../../lib/player-stats.ts';
-import { advanceShift, stopShiftMotion, shiftEarnings, MOVE_SPEED, CATCH_Y, characterGeometry, createShift, HORIZON_Y, ITEM_RADIUS, THROW_MIN, THROW_MAX, MIN_THROW_STEP, MAX_THROW_STEP, LAST_THROW, MAX_SIZE, MIN_SIZE, projectDrop, SHIFT_SECONDS, targetSize, TARGET_SCORE, WIDTH } from './engine.ts';
+import { advanceShift, createShiftReceipt, stopShiftMotion, shiftEarnings, FOODS_TO_FULL_SIZE, GROWTH_SPEED, MOVE_SPEED, CATCH_Y, characterGeometry, createShift, HORIZON_Y, ITEM_RADIUS, THROW_MIN, THROW_MAX, MIN_THROW_STEP, MAX_THROW_STEP, LAST_THROW, MAX_SIZE, MIN_SIZE, projectDrop, SHIFT_SECONDS, targetSize, TARGET_SCORE, WIDTH } from './engine.ts';
 
 const SAMPLE_AIMS = [THROW_MIN, 270, 400, 530, THROW_MAX];
 const quiet = (overrides = {}) => ({ ...createShift(42), nextDrop: Infinity, bagAt: null, ...overrides });
@@ -82,13 +82,13 @@ test('first terminal collision prevents later score events in same step', () => 
 
 test('growth remains bounded and keeps mouth at fixed arrival line', () => {
   assert.equal(targetSize(0), MIN_SIZE);
-  assert.equal(targetSize(6), (MIN_SIZE + MAX_SIZE) / 2);
+  assert.equal(targetSize(FOODS_TO_FULL_SIZE / 2), (MIN_SIZE + MAX_SIZE) / 2);
   assert.equal(targetSize(99), MAX_SIZE);
   for (const size of [MIN_SIZE, 200, MAX_SIZE]) {
     assert.equal(characterGeometry({ player: 400, size }).y, CATCH_Y);
   }
   const growing = advanceShift(quiet({ eaten: 99 }), 0.1, 0);
-  assert.ok(Math.abs(growing.size - MIN_SIZE - 2.4) < 1e-8);
+  assert.ok(Math.abs(growing.size - MIN_SIZE - GROWTH_SPEED * 0.1) < 1e-8);
   assert.equal(advanceShift(growing, 5, 0).size, MAX_SIZE);
 });
 
@@ -97,7 +97,7 @@ test('larger mouth catches food and plants equally at the same arrival time', ()
     const drop = incoming(kind, 0, 400 + 85);
     assert.equal(advanceShift(quiet({ drops: [drop] }), 0.02, 0).drops.length, 0);
     assert.equal(advanceShift(quiet({ drops: [drop] }), 0.02, 0).bite, null);
-    const large = advanceShift(quiet({ size: MAX_SIZE, eaten: 12, drops: [drop] }), 0.02, 0);
+    const large = advanceShift(quiet({ size: MAX_SIZE, eaten: FOODS_TO_FULL_SIZE, drops: [drop] }), 0.02, 0);
     assert.equal(large.score, kind === 'burger' ? 2 : 0);
     assert.equal(large.strikes, kind === 'apple' ? 1 : 0);
   }
@@ -106,7 +106,7 @@ test('larger mouth catches food and plants equally at the same arrival time', ()
 test('growth never catches food before it reaches the foreground', () => {
   const item = { ...incoming('burger'), progress: 0, travel: 2.5 };
   for (const size of [MIN_SIZE, MAX_SIZE]) {
-    const state = advanceShift(quiet({ size, eaten: 12, drops: [item] }), 2.4, 0);
+    const state = advanceShift(quiet({ size, eaten: FOODS_TO_FULL_SIZE, drops: [item] }), 2.4, 0);
     assert.equal(state.score, 0);
     assert.equal(state.drops.length, 1);
     assert.equal(advanceShift(state, 0.11, 0).score, 2);
@@ -119,7 +119,7 @@ test('edge and interior landing points are reachable at maximum size', () => {
     assert.ok(x >= MAX_SIZE / 2 && x <= WIDTH - MAX_SIZE / 2);
     for (const neighbour of SAMPLE_AIMS.filter(other => other !== x)) {
       assert.ok(Math.abs(neighbour - x) > half);
-      const state = advanceShift(quiet({ player: x, size: MAX_SIZE, eaten: 12, drops: [incoming('apple', 0, neighbour)] }), 0.02, 0);
+      const state = advanceShift(quiet({ player: x, size: MAX_SIZE, eaten: FOODS_TO_FULL_SIZE, drops: [incoming('apple', 0, neighbour)] }), 0.02, 0);
       assert.equal(state.strikes, 0);
     }
   }
@@ -127,10 +127,10 @@ test('edge and interior landing points are reachable at maximum size', () => {
 
 test('growth at walls stays on-screen and steering speed stays constant', () => {
   for (const player of [MIN_SIZE / 2, WIDTH - MIN_SIZE / 2]) {
-    const grown = advanceShift(quiet({ player, eaten: 12 }), 5, 0);
+    const grown = advanceShift(quiet({ player, eaten: FOODS_TO_FULL_SIZE }), 5, 0);
     assert.ok(grown.player >= MAX_SIZE / 2 && grown.player <= WIDTH - MAX_SIZE / 2);
   }
-  assert.equal(advanceShift(quiet(), 0.1, 1).player, advanceShift(quiet({ size: MAX_SIZE, eaten: 12 }), 0.1, 1).player);
+  assert.equal(advanceShift(quiet(), 0.1, 1).player, advanceShift(quiet({ size: MAX_SIZE, eaten: FOODS_TO_FULL_SIZE }), 0.1, 1).player);
 });
 
 test('projection converges at the far end and matches actual catch positions', () => {
@@ -202,7 +202,7 @@ test('bag is rare, can be either outcome and is thrown at most once', () => {
     assert.ok(ids.size <= 1);
   }
   assert.ok(bags > 250 && bags < 450);
-  assert.ok(bombs / bags > 0.15 && bombs / bags < 0.25);
+  assert.ok(bombs / bags > 0.4 && bombs / bags < 0.6);
 });
 
 test('invalid elapsed time and movement cannot corrupt the game', () => {
@@ -341,4 +341,87 @@ test('a long background-frame gap advances to shift end instead of granting a br
   const unpaid = advanceShift(stopShiftMotion(quiet({ elapsed: 5 })), 60, 0);
   assert.equal(unpaid.outcome, 'failure');
   assert.equal(shiftEarnings(unpaid, 1), 0);
+});
+
+test('receipt records the completed shift without recalculating or inflating actual earnings', () => {
+  const shift = quiet({ outcome: 'success', score: 88, meals: 5, strikes: 2, elapsed: 30 });
+  const receipt = createShiftReceipt(shift, 60, 0);
+  assert.deepEqual(receipt, { outcome: 'success', score: 88, meals: 5, strikes: 2, xp: 60, healthLost: 0, seconds: 30 });
+  shift.score = 900;
+  shift.meals = 90;
+  assert.equal(receipt.score, 88);
+  assert.equal(receipt.meals, 5);
+  assert.ok(Object.isFrozen(receipt));
+});
+
+test('bomb and timeout receipts preserve earned food but report zero pay and actual damage', () => {
+  const bomb = catchOne(quiet({ score: 80, meals: 4, bagBomb: true, elapsed: 14 }), 'mystery');
+  const bombReceipt = createShiftReceipt(bomb, 0, 2);
+  assert.equal(bombReceipt.outcome, 'failure');
+  assert.equal(bombReceipt.score, 80);
+  assert.equal(bombReceipt.meals, 4);
+  assert.equal(bombReceipt.xp, 0);
+  assert.equal(bombReceipt.healthLost, 2);
+  assert.equal(bombReceipt.seconds, 15);
+  const timedOut = advanceShift(quiet({ score: 47 }), 30, 0);
+  assert.equal(createShiftReceipt(timedOut, 0, 1).seconds, 30);
+  assert.equal(createShiftReceipt(timedOut, 0, 1).healthLost, 1);
+});
+
+test('receipt uses the capped XP delta and cancellation or a fresh shift has no receipt', () => {
+  const player = { health: 1, maxHealth: 5, xp: RUN_STAT_LIMITS.xp - 3, upgrades: { armor: 0, repair: 0, salvage: 0 } };
+  const shift = quiet({ outcome: 'success', score: 88, elapsed: 30 });
+  const final = resolveEncounterStats(player, {
+    outcome: shift.outcome, playerStats: { xp: awardRunXP(player.xp, shiftEarnings(shift, 1)) },
+  }, 40);
+  assert.equal(createShiftReceipt(shift, final.xp - player.xp, player.health - final.health).xp, 3);
+  assert.equal(createShiftReceipt(quiet({ score: 80 }), 0, 0), null);
+  assert.equal(createShiftReceipt(createShift(123), 0, 0), null);
+});
+
+test('endless runs continue beyond 30 seconds regardless of food score', () => {
+  for (const score of [0, 48, 200]) {
+    const start = { ...createShift(42, 'endless'), score, nextDrop: Infinity, bagAt: null };
+    const later = advanceShift(start, 120, 0);
+    assert.equal(later.outcome, null);
+    assert.ok(Math.abs(later.elapsed - 120) < 1e-6);
+  }
+  assert.equal(advanceShift(quiet({ score: 48 }), 30, 0).outcome, 'success');
+});
+
+test('endless schedules keep throwing and repeat mystery bags with bounded flight times', () => {
+  let state = createShift(95, 'endless');
+  const bags = new Map();
+  for (let i = 0; i < 1200; i++) {
+    state = advanceShift({ ...state, strikes: 0, outcome: null }, 0.1, 0);
+    for (const drop of state.drops) {
+      assert.ok(drop.travel >= 2.14 && drop.travel <= 2.8);
+      if (drop.kind === 'mystery') bags.set(drop.id, drop.bomb);
+    }
+  }
+  assert.ok(state.elapsed > 119);
+  assert.ok(state.lastThrow > 119);
+  assert.ok(state.wave > 140);
+  assert.ok(bags.size >= 4 && bags.size <= 7);
+  assert.ok([...bags.values()].every(value => typeof value === 'boolean'));
+});
+
+test('each flying mystery bag retains its own outcome after the next bag is rolled', () => {
+  const payday = advanceShift(quiet({ bagBomb: true, drops: [{ ...incoming('mystery'), bomb: false }] }), 0.02, 0);
+  assert.equal(payday.score, 25);
+  assert.equal(payday.outcome, null);
+  const bomb = advanceShift(quiet({ bagBomb: false, drops: [{ ...incoming('mystery'), bomb: true }] }), 0.02, 0);
+  assert.equal(bomb.outcome, 'failure');
+  assert.equal(bomb.score, 0);
+});
+
+test('endless runs end on the third plant or a bomb and report full elapsed time', () => {
+  const endless = { ...quiet({ elapsed: 91, strikes: 2 }), mode: 'endless' };
+  const plant = catchOne(endless, 'apple');
+  assert.equal(plant.outcome, 'failure');
+  assert.equal(plant.strikes, 3);
+  assert.equal(createShiftReceipt(plant, 0, 2).seconds, 92);
+  const bomb = catchOne({ ...endless, strikes: 0, bagBomb: true }, 'mystery');
+  assert.equal(bomb.outcome, 'failure');
+  assert.strictEqual(advanceShift(bomb, 10, 1), bomb);
 });

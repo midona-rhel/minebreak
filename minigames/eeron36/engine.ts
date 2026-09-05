@@ -10,9 +10,9 @@ export const BRAKING = 10000;
 export const REVERSAL = 9000;
 export const CATCH_Y = 352;
 export const MIN_SIZE = 160;
-export const MAX_SIZE = 240;
-export const FOODS_TO_FULL_SIZE = 12;
-export const GROWTH_SPEED = 24;
+export const MAX_SIZE = 280;
+export const FOODS_TO_FULL_SIZE = 8;
+export const GROWTH_SPEED = 72;
 export const ITEM_SIZE = 64;
 export const ITEM_RADIUS = 32;
 export const THROW_MIN = 140;
@@ -20,11 +20,12 @@ export const THROW_MAX = 660;
 export const MIN_THROW_STEP = 130;
 export const MAX_THROW_STEP = 260;
 export const LAST_THROW = 27;
+export type GameMode = 'shift' | 'endless';
 export type Food = 'burger' | 'fries' | 'shake';
 export type ItemKind = Food | 'broccoli' | 'apple' | 'salad' | 'mystery';
-export type Drop = { id: number; kind: ItemKind; x: number; progress: number; travel: number };
+export type Drop = { id: number; kind: ItemKind; x: number; progress: number; travel: number; bomb?: boolean };
 export type Shift = {
-  seed: number; elapsed: number; nextDrop: number; nextId: number; wave: number; aim: number; lastThrow: number;
+  mode: GameMode; seed: number; elapsed: number; nextDrop: number; nextId: number; wave: number; aim: number; lastThrow: number;
   player: number; velocity: number; size: number; eaten: number; score: number; strikes: number; meals: number;
   tray: Record<Food, boolean>; drops: Drop[]; bagAt: number | null; bagBomb: boolean;
   bite: { id: number; at: number; kind: ItemKind; points: number } | null;
@@ -55,15 +56,15 @@ function random(state: Shift): number {
   return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
 }
 
-export function createShift(seed: number): Shift {
+export function createShift(seed: number, mode: GameMode = 'shift'): Shift {
   const state: Shift = {
-    seed: seed >>> 0, elapsed: 0, nextDrop: 0.6, nextId: 0, wave: 0, aim: WIDTH / 2, lastThrow: -1,
+    mode, seed: seed >>> 0, elapsed: 0, nextDrop: 0.6, nextId: 0, wave: 0, aim: WIDTH / 2, lastThrow: -1,
     player: WIDTH / 2, velocity: 0, size: MIN_SIZE, eaten: 0, score: 0, strikes: 0, meals: 0,
     tray: { burger: false, fries: false, shake: false }, drops: [], bagAt: null, bagBomb: false, bite: null,
     outcome: null, message: 'NOW WORK.',
   };
-  if (random(state) < 0.35) state.bagAt = 11 + random(state) * 7;
-  state.bagBomb = random(state) < 0.2;
+  if (random(state) < 0.35 || mode === 'endless') state.bagAt = 11 + random(state) * 7;
+  state.bagBomb = random(state) < 0.5;
   return state;
 }
 
@@ -71,7 +72,7 @@ function catchDrop(state: Shift, drop: Drop) {
   const kind = drop.kind;
   const oldScore = state.score;
   if (kind === 'mystery') {
-    if (state.bagBomb) { state.outcome = 'failure'; state.message = 'YOU HAVE BEEN PROMOTED TO CUSTOMER.'; }
+    if (drop.bomb ?? state.bagBomb) { state.outcome = 'failure'; state.message = 'YOU HAVE BEEN PROMOTED TO CUSTOMER.'; }
     else { state.score += 25; state.message = 'PAYDAY. +25'; }
   } else if (kind === 'broccoli' || kind === 'apple' || kind === 'salad') {
     state.strikes += 1;
@@ -104,9 +105,12 @@ function throwWave(state: Shift) {
   const isBag = state.bagAt !== null && state.elapsed >= state.bagAt;
   const kind: ItemKind = isBag ? 'mystery' : foods[Math.floor(random(state) * foods.length)];
   // Shared travel time prevents a later wave overtaking an earlier one.
-  const travel = 2.8 - 0.65 * state.elapsed / SHIFT_SECONDS;
-  state.drops.push({ id: state.nextId++, kind, x: state.aim, progress: 0, travel });
-  if (isBag) state.bagAt = null;
+  const travel = 2.8 - 0.65 * Math.min(1, state.elapsed / SHIFT_SECONDS);
+  state.drops.push({ id: state.nextId++, kind, x: state.aim, progress: 0, travel, ...(isBag ? { bomb: state.bagBomb } : {}) });
+  if (isBag) {
+    state.bagAt = state.mode === 'endless' ? state.elapsed + 18 + random(state) * 10 : null;
+    state.bagBomb = random(state) < 0.5;
+  }
   // First four deliveries are safe. Later every third delivery offers food beside a plant.
   // Every landing point is reachable at full size; the paired plant is safely separated.
   if (!isBag && state.wave >= 4 && state.wave % 3 === 1) {
@@ -128,11 +132,12 @@ export function advanceShift(previous: Shift, seconds: number, direction: number
   if (previous.outcome || !Number.isFinite(seconds) || seconds <= 0) return previous;
   const state: Shift = { ...previous, tray: { ...previous.tray }, drops: previous.drops.map(drop => ({ ...drop })) };
   const movement = Number.isFinite(direction) ? Math.max(-1, Math.min(1, direction)) : 0;
-  let remaining = Math.min(seconds, SHIFT_SECONDS - state.elapsed);
+  const endless = state.mode === 'endless';
+  let remaining = endless ? seconds : Math.min(seconds, SHIFT_SECONDS - state.elapsed);
   while (remaining > 0 && !state.outcome) {
     const dt = Math.min(remaining, 1 / 120);
     remaining -= dt;
-    state.elapsed = Math.min(SHIFT_SECONDS, state.elapsed + dt);
+    state.elapsed = endless ? state.elapsed + dt : Math.min(SHIFT_SECONDS, state.elapsed + dt);
     state.size = Math.min(targetSize(state.eaten), state.size + GROWTH_SPEED * dt);
     const previousX = state.player;
     const previousVelocity = state.velocity;
@@ -147,9 +152,9 @@ export function advanceShift(previous: Shift, seconds: number, direction: number
       || (state.player <= state.size / 2 && state.velocity < 0)) state.velocity = 0;
     const body = characterGeometry(state);
     state.nextDrop -= dt;
-    if (state.nextDrop <= 0 && state.elapsed <= LAST_THROW) {
+    if (state.nextDrop <= 0 && (endless || state.elapsed <= LAST_THROW)) {
       throwWave(state);
-      state.nextDrop += 0.98 - 0.2 * state.elapsed / SHIFT_SECONDS;
+      state.nextDrop += 0.98 - 0.2 * Math.min(1, state.elapsed / SHIFT_SECONDS);
     }
     const alive: Drop[] = [];
     for (const drop of state.drops) {
@@ -162,7 +167,7 @@ export function advanceShift(previous: Shift, seconds: number, direction: number
       } else alive.push(drop);
     }
     state.drops = alive;
-    if (!state.outcome && state.elapsed >= SHIFT_SECONDS - 0.000001) {
+    if (!endless && !state.outcome && state.elapsed >= SHIFT_SECONDS - 0.000001) {
       state.elapsed = SHIFT_SECONDS;
       state.outcome = state.score >= TARGET_SCORE ? 'success' : 'failure';
       state.message = state.outcome === 'success' ? 'SHIFT OVER. COME BACK TOMORROW.' : 'NOT ENOUGH FOOD. CLOCK OUT.';
@@ -176,4 +181,28 @@ export function shiftEarnings(state: Pick<Shift, 'score' | 'outcome'>, floor: nu
   if (state.outcome !== 'success') return 0;
   const extraFood = Math.max(0, state.score - TARGET_SCORE);
   return 35 + floor * 5 + Math.min(20, Math.floor(extraFood / 2));
+}
+
+export type ShiftReceipt = Readonly<{
+  outcome: 'success' | 'failure';
+  score: number;
+  meals: number;
+  strikes: number;
+  xp: number;
+  healthLost: number;
+  seconds: number;
+}>;
+
+/** A detached receipt of a finished shift, using the actual capped host payout. */
+export function createShiftReceipt(state: Shift, xp: number, healthLost: number): ShiftReceipt | null {
+  if (!state.outcome) return null;
+  return Object.freeze({
+    outcome: state.outcome,
+    score: state.score,
+    meals: state.meals,
+    strikes: state.strikes,
+    xp,
+    healthLost,
+    seconds: state.mode === 'endless' ? Math.ceil(state.elapsed) : Math.min(SHIFT_SECONDS, Math.ceil(state.elapsed)),
+  });
 }
