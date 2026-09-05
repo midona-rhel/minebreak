@@ -37,6 +37,13 @@ Open /wackdonalds for endless free play. The timer counts time alive and there i
 The receipt is free-play-only. Main-run encounters keep the 30-second shift, 48-point target and immediate return to the board; their bags also use the new 50/50 odds. Practice uses disposable stats, does not write board progress, and uses food score as the endless-run result. Endless runs end in failure, so the existing failure rule grants no XP; the receipt emphasizes the food score. The growth increase also applies to main-run Wackdonalds, but food points, the 48-point target, and the XP formula are unchanged.
 
 Regression tests cover successful timed shifts, bombs, timeouts, capped XP, immutable receipts, unfinished/fresh shifts, endless schedules beyond 30 seconds, repeated bags, per-bag outcomes and full-duration receipts. Free-play browser interaction, receipt appearance and replay focus still need manual confirmation; unit tests and compilation do not establish those results.
+## Music and sound
+
+Music and effects are synthesized with Web Audio using an original short melody and simple oscillator envelopes. No audio files, downloads or new dependencies are needed. Audio begins from Clock In, supports the Sound button and M key, and silences on blur/hidden tabs while the simulation continues. Playback skips missed music beats after frame gaps. Cancel/unmount releases audio; an ending cue may ring for at most 650ms before its context closes.
+
+Effects cover throws, food catches, meals, mystery-bag warnings and payouts, plants, bombs and timed-shift endings. Sound does not replace visual game cues. The sound control toggles both the quiet background music and effects.
+
+Six audio tests use a fake audio context to check unavailable audio, muting, duplicate-event suppression, no note backlog, bounded voices and cleanup. Run node --test minigames/eeron36/audio.test.mjs minigames/eeron36/engine.test.mjs. These tests do not verify audible quality or browser playback. The owner listened to the local version and approved pushing it; broader browser and audio-device coverage remains manual.
 ## Art provenance
 
 All PNGs were generated for this project with OpenAI image generation on 2026-09-05; no stock pack, third-party reference image or actual restaurant logo was used. Applicable OpenAI service terms govern generated art; no separate third-party asset licence is asserted.

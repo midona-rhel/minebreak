@@ -5,6 +5,7 @@ import Image from 'next/image';
 import type { EncounterResult, MinigameProps } from '../contract';
 import { awardRunXP, resolveEncounterStats } from '../../lib/player-stats';
 import { advanceShift, characterGeometry, createShift, createShiftReceipt, FOODS_TO_FULL_SIZE, HEIGHT, HORIZON_Y, ITEM_SIZE, projectDrop, stopShiftMotion, shiftEarnings, SHIFT_SECONDS, TARGET_SCORE, WIDTH, type ItemKind, type GameMode, type ShiftReceipt } from './engine';
+import { createShiftAudio, type ShiftAudio } from './audio';
 import './wackdonalds.css';
 
 const art: Record<ItemKind, { label: string; column: number; row: number }> = {
@@ -40,6 +41,18 @@ export default function Wackdonalds({ context, complete, onReceipt, mode = 'shif
   const current = useRef(shift);
   const [started, setStarted] = useState(false);
   const startedAt = useRef(0);
+  const [soundOn, setSoundOn] = useState(true);
+  const soundEnabled = useRef(true);
+  const sound = useRef<ShiftAudio | null>(null);
+  useEffect(() => () => { sound.current?.dispose(); sound.current = null; }, []);
+
+  function toggleSound() {
+    const enabled = !soundEnabled.current;
+    soundEnabled.current = enabled;
+    setSoundOn(enabled);
+    if (enabled && started && !sound.current) sound.current = createShiftAudio();
+    sound.current?.setEnabled(enabled);
+  }
   const root = useRef<HTMLDivElement>(null);
   const inputs = useRef(new Set<string>());
   const reported = useRef(false);
@@ -55,16 +68,19 @@ export default function Wackdonalds({ context, complete, onReceipt, mode = 'shif
     setShift(stopped);
   }, []);
 
-  const play = () => { stopMotion(); startedAt.current = performance.now(); setStarted(true); root.current?.focus(); };
+  const play = () => { if (soundEnabled.current) sound.current = createShiftAudio(); stopMotion(); startedAt.current = performance.now(); setStarted(true); root.current?.focus(); };
 
   useEffect(() => {
     const heldInputs = inputs.current;
-    const lostFocus = () => { stopMotion(); };
-    const visibility = () => { if (document.hidden) lostFocus(); };
+    const lostFocus = () => { stopMotion(); sound.current?.setEnabled(false); };
+    const regainFocus = () => { if (!document.hidden) sound.current?.setEnabled(soundEnabled.current); };
+    const visibility = () => { if (document.hidden) lostFocus(); else regainFocus(); };
     window.addEventListener('blur', lostFocus);
+    window.addEventListener('focus', regainFocus);
     document.addEventListener('visibilitychange', visibility);
     return () => {
       window.removeEventListener('blur', lostFocus);
+      window.removeEventListener('focus', regainFocus);
       document.removeEventListener('visibilitychange', visibility);
       heldInputs.clear();
     };
@@ -85,6 +101,7 @@ export default function Wackdonalds({ context, complete, onReceipt, mode = 'shif
       const left = inputs.current.has('ArrowLeft') || inputs.current.has('a') || inputs.current.has('pointer-left');
       const right = inputs.current.has('ArrowRight') || inputs.current.has('d') || inputs.current.has('pointer-right');
       const next = advanceShift(current.current, dt, Number(right) - Number(left));
+      sound.current?.update(current.current, next);
       current.current = next;
       setShift(next);
       if (next.outcome) {
@@ -110,6 +127,7 @@ export default function Wackdonalds({ context, complete, onReceipt, mode = 'shif
 
   function keyboard(event: KeyboardEvent, down: boolean) {
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    if (key === 'm') { if (down && !event.repeat) { event.preventDefault(); toggleSound(); } return; }
     if (!['ArrowLeft', 'ArrowRight', 'a', 'd'].includes(key)) return;
     if (!started || reported.current) return;
     event.preventDefault();
@@ -181,7 +199,7 @@ export default function Wackdonalds({ context, complete, onReceipt, mode = 'shif
             <div className="wack-risk"><Sprite kind="mystery" /><span><b>50/50 MYSTERY BAG</b><br /><b>50%: +25 POINTS</b><br /><b>50%: BOOM. RUN OVER.</b><br />You can just let it fall.</span></div>
           </>}
           <button className="wack-start" onClick={play}>CLOCK IN →</button>
-          <p className="wack-key-hint">← → or A / D to move. Touch buttons work too.</p>
+          <p className="wack-key-hint">← → or A / D to move. Touch buttons work too. M toggles sound.</p>
         </div>
       </div>}
     </div>
@@ -199,6 +217,7 @@ export default function Wackdonalds({ context, complete, onReceipt, mode = 'shif
           onPointerUp={() => inputs.current.delete(`pointer-${direction}`)}
           onPointerCancel={() => inputs.current.delete(`pointer-${direction}`)}
           onLostPointerCapture={() => inputs.current.delete(`pointer-${direction}`)}>{direction === 'left' ? '←' : '→'}</button>)}
+        <button className="wack-sound" onClick={toggleSound} aria-pressed={soundOn} aria-label="Music and sound effects">Sound {soundOn ? 'on' : 'off'}</button>
 
       </div>
     </div>
