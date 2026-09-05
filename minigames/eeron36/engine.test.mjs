@@ -202,7 +202,7 @@ test('bag is rare, can be either outcome and is thrown at most once', () => {
     assert.ok(ids.size <= 1);
   }
   assert.ok(bags > 250 && bags < 450);
-  assert.ok(bombs / bags > 0.15 && bombs / bags < 0.25);
+  assert.ok(bombs / bags > 0.4 && bombs / bags < 0.6);
 });
 
 test('invalid elapsed time and movement cannot corrupt the game', () => {
@@ -377,4 +377,51 @@ test('receipt uses the capped XP delta and cancellation or a fresh shift has no 
   assert.equal(createShiftReceipt(shift, final.xp - player.xp, player.health - final.health).xp, 3);
   assert.equal(createShiftReceipt(quiet({ score: 80 }), 0, 0), null);
   assert.equal(createShiftReceipt(createShift(123), 0, 0), null);
+});
+
+test('endless runs continue beyond 30 seconds regardless of food score', () => {
+  for (const score of [0, 48, 200]) {
+    const start = { ...createShift(42, 'endless'), score, nextDrop: Infinity, bagAt: null };
+    const later = advanceShift(start, 120, 0);
+    assert.equal(later.outcome, null);
+    assert.ok(Math.abs(later.elapsed - 120) < 1e-6);
+  }
+  assert.equal(advanceShift(quiet({ score: 48 }), 30, 0).outcome, 'success');
+});
+
+test('endless schedules keep throwing and repeat mystery bags with bounded flight times', () => {
+  let state = createShift(95, 'endless');
+  const bags = new Map();
+  for (let i = 0; i < 1200; i++) {
+    state = advanceShift({ ...state, strikes: 0, outcome: null }, 0.1, 0);
+    for (const drop of state.drops) {
+      assert.ok(drop.travel >= 2.14 && drop.travel <= 2.8);
+      if (drop.kind === 'mystery') bags.set(drop.id, drop.bomb);
+    }
+  }
+  assert.ok(state.elapsed > 119);
+  assert.ok(state.lastThrow > 119);
+  assert.ok(state.wave > 140);
+  assert.ok(bags.size >= 4 && bags.size <= 7);
+  assert.ok([...bags.values()].every(value => typeof value === 'boolean'));
+});
+
+test('each flying mystery bag retains its own outcome after the next bag is rolled', () => {
+  const payday = advanceShift(quiet({ bagBomb: true, drops: [{ ...incoming('mystery'), bomb: false }] }), 0.02, 0);
+  assert.equal(payday.score, 25);
+  assert.equal(payday.outcome, null);
+  const bomb = advanceShift(quiet({ bagBomb: false, drops: [{ ...incoming('mystery'), bomb: true }] }), 0.02, 0);
+  assert.equal(bomb.outcome, 'failure');
+  assert.equal(bomb.score, 0);
+});
+
+test('endless runs end on the third plant or a bomb and report full elapsed time', () => {
+  const endless = { ...quiet({ elapsed: 91, strikes: 2 }), mode: 'endless' };
+  const plant = catchOne(endless, 'apple');
+  assert.equal(plant.outcome, 'failure');
+  assert.equal(plant.strikes, 3);
+  assert.equal(createShiftReceipt(plant, 0, 2).seconds, 92);
+  const bomb = catchOne({ ...endless, strikes: 0, bagBomb: true }, 'mystery');
+  assert.equal(bomb.outcome, 'failure');
+  assert.strictEqual(advanceShift(bomb, 10, 1), bomb);
 });

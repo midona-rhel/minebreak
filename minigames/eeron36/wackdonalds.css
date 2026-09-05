@@ -25,7 +25,6 @@
 .wack-drop-bad { border: 3px dashed #5c174b; background: #f7dfef; }
 .wack-wrong { position: absolute; right: -2px; top: -6px; color: #fff; background: #5c174b; border-radius: 50%; width: 24px; height: 24px; font-size: 23px; line-height: 22px; text-align: center; }
 .wack-drop-mystery { border: 3px solid #281712; border-radius: 12px; background: #ffcf32; }
-.wack-question { position: absolute; right: -4px; top: -8px; color: #281712; background: #fff8df; border: 2px solid #281712; border-radius: 50%; width: 26px; height: 26px; line-height: 22px; text-align: center; }
 .wack-character { position: absolute; aspect-ratio: 1; transform: translate(-50%, -50%); pointer-events: none; z-index: 10; }
 .wack-thrower { position: absolute; width: 24%; max-width: 300px; aspect-ratio: 1; left: 52%; transform: translate(-70%, -40%); z-index: 15; transform-origin: bottom center; }
 .wack-cover { position: absolute; inset: 0; z-index: 50; display: grid; place-items: center; padding: 95px 18px 85px; background: #fff5d8ed; overflow: auto; }
@@ -72,3 +71,5 @@
 
 .wack-pose { position: relative; display: block; width: 100%; height: 100%; }
 .wack-pose > span { position: absolute; inset: 0; }
+.wack-bag-label { position: absolute; left: 50%; bottom: -22px; transform: translateX(-50%); display: grid; min-width: 104px; padding: 3px 6px; border: 2px solid #281712; border-radius: 7px; background: #ffcf32; color: #281712; text-align: center; white-space: nowrap; font-size: .875rem; font-weight: 900; line-height: 1.2; }
+.wack-bag-label b { font-size: 1rem; }

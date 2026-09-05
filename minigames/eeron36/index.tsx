@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import Image from 'next/image';
 import type { EncounterResult, MinigameProps } from '../contract';
 import { awardRunXP, resolveEncounterStats } from '../../lib/player-stats';
-import { advanceShift, characterGeometry, createShift, createShiftReceipt, FOODS_TO_FULL_SIZE, HEIGHT, HORIZON_Y, ITEM_SIZE, projectDrop, stopShiftMotion, shiftEarnings, SHIFT_SECONDS, TARGET_SCORE, WIDTH, type ItemKind, type ShiftReceipt } from './engine';
+import { advanceShift, characterGeometry, createShift, createShiftReceipt, FOODS_TO_FULL_SIZE, HEIGHT, HORIZON_Y, ITEM_SIZE, projectDrop, stopShiftMotion, shiftEarnings, SHIFT_SECONDS, TARGET_SCORE, WIDTH, type ItemKind, type GameMode, type ShiftReceipt } from './engine';
 import './wackdonalds.css';
 
 const art: Record<ItemKind, { label: string; column: number; row: number }> = {
@@ -35,8 +35,8 @@ function CharacterPose({ from, to, blend }: { from: number; to: number; blend: n
   </span>;
 }
 
-export default function Wackdonalds({ context, complete, onReceipt }: MinigameProps & { onReceipt?: (receipt: ShiftReceipt) => void }) {
-  const [shift, setShift] = useState(() => createShift(context.seed));
+export default function Wackdonalds({ context, complete, onReceipt, mode = 'shift' }: MinigameProps & { mode?: GameMode; onReceipt?: (receipt: ShiftReceipt) => void }) {
+  const [shift, setShift] = useState(() => createShift(context.seed, mode));
   const current = useRef(shift);
   const [started, setStarted] = useState(false);
   const startedAt = useRef(0);
@@ -116,11 +116,12 @@ export default function Wackdonalds({ context, complete, onReceipt }: MinigamePr
     if (down) inputs.current.add(key); else inputs.current.delete(key);
   }
 
+  const endless = shift.mode === 'endless';
   const body = characterGeometry(shift);
   const targetMet = shift.score >= TARGET_SCORE;
   const failureHealth = resolveEncounterStats(context.player, { outcome: 'failure' }, 0).health;
   const healthPenalty = context.player.health - failureHealth;
-  const feedback = targetMet
+  const feedback = endless ? shift.message : targetMet
     ? 'TARGET MET. SURVIVE FOR ' + shiftEarnings({ ...shift, outcome: 'success' }, context.floor) + ' XP.'
     : shift.elapsed >= SHIFT_SECONDS - 10
       ? (TARGET_SCORE - shift.score) + ' MORE POINTS OR LOSE ' + healthPenalty + ' HEALTH. NO PAY.'
@@ -144,8 +145,8 @@ export default function Wackdonalds({ context, complete, onReceipt }: MinigamePr
       <span className="wack-shift-label">*TECHNICALLY LUNCH.</span>
     </header>
     <div className="wack-scoreboard" aria-label="Shift progress">
-      <div><span>{targetMet ? 'GOAL MET' : 'FOOD GOAL'}</span><strong>{shift.score}<small> / {TARGET_SCORE}</small></strong></div>
-      <div><span>SHIFT ENDS</span><strong>{Math.max(0, Math.ceil(SHIFT_SECONDS - shift.elapsed))}<small> SEC</small></strong></div>
+      <div><span>{endless ? 'FOOD SCORE' : targetMet ? 'GOAL MET' : 'FOOD GOAL'}</span><strong>{shift.score}{!endless && <small> / {TARGET_SCORE}</small>}</strong></div>
+      <div><span>{endless ? 'TIME ALIVE' : 'SHIFT ENDS'}</span><strong>{endless ? Math.floor(shift.elapsed) : Math.max(0, Math.ceil(SHIFT_SECONDS - shift.elapsed))}<small> SEC</small></strong></div>
       <div><span>STRIKES</span><strong aria-label={`${shift.strikes} of 3 strikes`}>{shift.strikes}<small> / 3</small></strong></div>
     </div>
     <div className="wack-stage" aria-label="Food flies from the worker toward you. Move freely left and right to eat it when it reaches your mouth. Dodge plants.">
@@ -157,7 +158,7 @@ export default function Wackdonalds({ context, complete, onReceipt }: MinigamePr
         return <div key={drop.id} aria-hidden="true"
           className={`wack-drop ${bad ? 'wack-drop-bad' : ''} ${drop.kind === 'mystery' ? 'wack-drop-mystery' : ''}`}
           style={{ left: `${projected.x / WIDTH * 100}%`, top: `${projected.y / HEIGHT * 100}%`, width: `${ITEM_SIZE * projected.scale / WIDTH * 100}%`, zIndex: 20 + Math.floor(drop.progress * 10) }}>
-          <Sprite kind={drop.kind} />{bad && <b className="wack-wrong">×</b>}{drop.kind === 'mystery' && <b className="wack-question">?</b>}
+          <Sprite kind={drop.kind} />{bad && <b className="wack-wrong">×</b>}{drop.kind === 'mystery' && <span className="wack-bag-label"><b>50/50</b><span>+25 / BOOM</span></span>}
         </div>;
       })}
       <div className="wack-character" aria-hidden="true" style={{ left: `${body.x / WIDTH * 100}%`, top: `${body.y / HEIGHT * 100}%`, width: `${body.size / WIDTH * 100}%` }}>
@@ -170,14 +171,14 @@ export default function Wackdonalds({ context, complete, onReceipt }: MinigamePr
         <div className="wack-instructions">
           <p className="wack-eyebrow">WELCOME TO WACKDONALDS.</p>
           <h3>NOW WORK.</h3>
-          <p>He throws. You eat. Not salad. 30 seconds. No breaks.</p>
+          <p>{endless ? 'He throws. You eat. Work until you drop. No breaks.' : 'He throws. You eat. Not salad. 30 seconds. No breaks.'}</p>
           {!started && <>
-            <p>Survive with <b>at least {TARGET_SCORE} points</b>. Three plants = fired.</p>
-            <p className="wack-penalty"><b>MISS {TARGET_SCORE}? NO PAY.</b><br />Any failure costs <b>{healthPenalty} health</b>{context.player.upgrades.armor > 0 ? ' with your armor' : ''}.</p>
+            <p>{endless ? 'Chase the highest food score. Three plants = fired.' : <>Survive with <b>at least {TARGET_SCORE} points</b>. Three plants = fired.</>}</p>
+            {!endless && <p className="wack-penalty"><b>MISS {TARGET_SCORE}? NO PAY.</b><br />Any failure costs <b>{healthPenalty} health</b>{context.player.upgrades.armor > 0 ? ' with your armor' : ''}.</p>}
             <p className="wack-growth-rule">Line up your mouth. Eat. Grow. Dodge the plants.</p>
             <p className="wack-growth-rule">Burger + fries + shake = 6 bonus points.</p>
-            <p className="wack-growth-rule">Finish with {TARGET_SCORE} points: <b>{35 + context.floor * 5} XP</b>.<br />Every 2 extra points: +1 XP, up to +20.</p>
-            <div className="wack-risk"><Sprite kind="mystery" /><span><b>MYSTERY BAG</b><br />80%: +25 points. 20%: instant loss.<br />You can just let it fall.</span></div>
+            {!endless && <p className="wack-growth-rule">Finish with {TARGET_SCORE} points: <b>{35 + context.floor * 5} XP</b>.<br />Every 2 extra points: +1 XP, up to +20.</p>}
+            <div className="wack-risk"><Sprite kind="mystery" /><span><b>50/50 MYSTERY BAG</b><br /><b>50%: +25 POINTS</b><br /><b>50%: BOOM. RUN OVER.</b><br />You can just let it fall.</span></div>
           </>}
           <button className="wack-start" onClick={play}>CLOCK IN →</button>
           <p className="wack-key-hint">← → or A / D to move. Touch buttons work too.</p>
