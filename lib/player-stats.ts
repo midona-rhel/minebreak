@@ -1,9 +1,82 @@
-import type { EncounterContext, PlayerStats } from '../minigames/contract';
+import type {
+  EncounterContext,
+  EncounterResult,
+  PlayerStats,
+} from '../minigames/contract';
 
 /** Internal harness input; level is derived from the same XP used by the HUD. */
 export type PlayerStatsSource = Omit<PlayerStats, 'level'>;
 
-export function createPlayerStatsSnapshot(source: PlayerStatsSource): PlayerStats {
+export type RunPlayerStats = Pick<
+  PlayerStats,
+  'health' | 'maxHealth' | 'xp' | 'upgrades'
+>;
+
+function record(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function integer(
+  patch: Record<string, unknown>,
+  key: string,
+  minimum: number,
+  maximum: number,
+  fallback: number,
+): number {
+  const value = Object.hasOwn(patch, key) ? patch[key] : undefined;
+  return typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= minimum &&
+    value <= maximum
+    ? value
+    : fallback;
+}
+
+/**
+ * Normal outcome defaults first, then valid absolute overrides (not deltas).
+ * Persistent profile and derived level are deliberately not writable here.
+ */
+export function resolveEncounterStats(
+  current: RunPlayerStats,
+  result: EncounterResult,
+  defaultRewardXP: number,
+): RunPlayerStats {
+  const patch = record(
+    Object.hasOwn(result, 'playerStats') ? result.playerStats : undefined,
+  );
+  const upgrades = record(
+    Object.hasOwn(patch, 'upgrades') ? patch.upgrades : undefined,
+  );
+  const maxHealth = integer(patch, 'maxHealth', 1, 100, current.maxHealth);
+  const defaultHealth =
+    result.outcome === 'failure'
+      ? Math.max(0, current.health - Math.max(1, 2 - current.upgrades.armor))
+      : current.health;
+  const defaultXP =
+    result.outcome === 'success'
+      ? Math.min(1_000_000_000, current.xp + defaultRewardXP)
+      : current.xp;
+  return {
+    health: Math.min(
+      maxHealth,
+      integer(patch, 'health', 0, 100, defaultHealth),
+    ),
+    maxHealth,
+    xp: integer(patch, 'xp', 0, 1_000_000_000, defaultXP),
+    upgrades: {
+      armor: integer(upgrades, 'armor', 0, 100, current.upgrades.armor),
+      repair: integer(upgrades, 'repair', 0, 100, current.upgrades.repair),
+      salvage: integer(upgrades, 'salvage', 0, 100, current.upgrades.salvage),
+    },
+  };
+}
+
+export function createPlayerStatsSnapshot(
+  source: PlayerStatsSource,
+): PlayerStats {
   return Object.freeze({
     health: source.health,
     maxHealth: source.maxHealth,

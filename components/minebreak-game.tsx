@@ -7,7 +7,7 @@ import { Activity, Flag, Heart, Pickaxe, Radar, RotateCcw, Shield, Skull, Sparkl
 import EncounterHost from '@/components/encounter-host';
 import { minigames, selectMinigame } from '@/minigames/registry';
 import type { EncounterContext, EncounterResult } from '@/minigames/contract';
-import { createEncounterContext } from '@/lib/player-stats';
+import { createEncounterContext, resolveEncounterStats } from '@/lib/player-stats';
 type Cell = { id: number; mine: boolean; nearby: number; open: boolean; flagged: boolean; disarmed: boolean };
 type Profile = { shards: number; best: number; disarmed: number };
 type Perk = 'armor' | 'repair' | 'salvage';
@@ -158,7 +158,28 @@ export default function MinebreakGame() {
     else { setCells(floodOpen(next, id)); setXp((value) => value + 2); }
   };
   const flag = (event: React.MouseEvent, id: number) => { event.preventDefault(); if (phase !== 'board' || encounter || cells[id].open) return; setCells((all) => all.map((c) => c.id === id ? { ...c, flagged: !c.flagged } : c)); };
-  const finish = useCallback((result: EncounterResult) => { if (!encounter) return; setCells((all) => all.map((c) => c.id === encounter.id ? { ...c, open: true, disarmed: true } : c)); if (result.outcome === 'success') { setXp((v) => v + 35 + floor * 5); save({ ...profile, disarmed: profile.disarmed + 1 }); setMessage('Encounter completed.'); } else { const damage = Math.max(1, 2 - perks.armor); const health = hp - damage; setHp(health); setMessage(`System hit. Lost ${damage} integrity.`); if (health <= 0) setPhase('dead'); } setEncounter(null); }, [encounter, floor, hp, perks.armor, profile, save]);
+  const finish = useCallback((result: EncounterResult) => {
+    if (!encounter) return;
+    const stats = resolveEncounterStats(
+      { health: hp, maxHealth: maxHp, xp, upgrades: perks },
+      result,
+      35 + floor * 5,
+    );
+    setCells((all) => all.map((c) => c.id === encounter.id ? { ...c, open: true, disarmed: true } : c));
+    setHp(stats.health);
+    setMaxHp(stats.maxHealth);
+    setXp(stats.xp);
+    setPerks({ ...stats.upgrades });
+    if (result.outcome === 'success') {
+      save({ ...profile, disarmed: profile.disarmed + 1 });
+      setMessage('Encounter completed.');
+    } else {
+      const lostHealth = Math.max(0, hp - stats.health);
+      setMessage(lostHealth ? `Encounter ended. Lost ${lostHealth} integrity.` : 'Encounter ended.');
+    }
+    if (stats.health === 0) setPhase('dead');
+    setEncounter(null);
+  }, [encounter, floor, hp, maxHp, xp, perks, profile, save]);
   const descend = (perk: Perk) => { const nextFloor = floor + 1; setPerks((p) => ({ ...p, [perk]: p[perk] + 1 })); if (perk === 'armor') { setMaxHp((v) => v + 1); setHp((v) => v + 1); } if (perk === 'repair') setHp((v) => Math.min(maxHp, v + 2)); const nextSeed = Date.now() % 999999; setFloor(nextFloor); setSeed(nextSeed); setCells(makeBoard(nextFloor, nextSeed)); setFirst(true); setPhase('board'); setMessage(`Descending to sector ${nextFloor}.`); };
   const newRun = () => { const nextSeed = Date.now() % 999999; setFloor(1); setSeed(nextSeed); setCells(makeBoard(1, nextSeed)); setHp(5); setMaxHp(5); setXp(0); setFirst(true); setEncounter(null); setPhase('board'); setPerks({ armor: 0, repair: 0, salvage: 0 }); setMessage('New descent initialized.'); };
 

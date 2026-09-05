@@ -1,6 +1,20 @@
 import type { ComponentType } from 'react';
 
-export type EncounterResult = { outcome: 'success' | 'failure' };
+/** Final absolute run-stat values; omitted fields use normal outcome defaults. */
+export interface PlayerStatsPatch {
+  readonly health?: number;
+  readonly maxHealth?: number;
+  readonly xp?: number;
+  readonly upgrades?: Readonly<
+    Partial<{ armor: number; repair: number; salvage: number }>
+  >;
+}
+
+export type EncounterResult = {
+  outcome: 'success' | 'failure';
+  /** Validated and applied once by the harness. Never mutate context.player. */
+  playerStats?: PlayerStatsPatch;
+};
 
 /** Read-only encounter-start snapshot. The harness remains the state owner. */
 export interface PlayerStats {
@@ -11,9 +25,17 @@ export interface PlayerStats {
   /** One-based; currently 1 + floor(xp / 100). */
   readonly level: number;
   /** Number of times each run upgrade has been acquired. */
-  readonly upgrades: Readonly<{ armor: number; repair: number; salvage: number }>;
+  readonly upgrades: Readonly<{
+    armor: number;
+    repair: number;
+    salvage: number;
+  }>;
   /** Persistent progress retained between runs. */
-  readonly profile: Readonly<{ shards: number; bestFloor: number; totalDisarmed: number }>;
+  readonly profile: Readonly<{
+    shards: number;
+    bestFloor: number;
+    totalDisarmed: number;
+  }>;
 }
 
 export interface EncounterContext {
@@ -26,7 +48,7 @@ export interface EncounterContext {
 export interface MinigameProps {
   /** Stable for this encounter; use for repeatable generation. */
   context: EncounterContext;
-  /** Reports an outcome. The harness owns rewards and health changes. */
+  /** Reports an outcome and optional final run stats; the harness validates/applies them. */
   complete: (result: EncounterResult) => void;
   /** Returns to the board without rewards or damage. */
   cancel: () => void;
