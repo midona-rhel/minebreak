@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import MusicPlayer from '@/components/music-player';
+import styles from './layout.module.css';
 import './globals.css';
 
 const geistSans = Geist({
@@ -15,7 +16,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: 'Minebreak',
-  description: 'A Three.js Minesweeper roguelike with combat minigames and persistent progression.',
+  description:
+    'A Three.js Minesweeper roguelike with combat minigames and persistent progression.',
 };
 
 export default function RootLayout({
@@ -26,7 +28,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased ${styles.page}`}
       >
         {children}
         <MusicPlayer />

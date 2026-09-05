@@ -19,7 +19,7 @@ Recorder attacks use breath noise, pressure shaping, a slight pitch settling, de
 
 ## Integration for Assets/Scenery
 
-- Mount **one** `<MusicPlayer />`. This PR adds just its import and mount after `{children}` in `app/layout.tsx`. `components/minebreak-game.tsx`, global styles, game state, package files, and visual assets are untouched.
+- Mount **one** `<MusicPlayer />` after `{children}` in `app/layout.tsx`. A scoped body class from `app/layout.module.css` enables vertical scrolling, overriding the old desktop body's overflow lock so the below-game controls remain reachable by wheel, touch, and keyboard. `components/minebreak-game.tsx`, global styles, game state, package files, and visual assets are untouched.
 - `components/music-player.tsx` is self-contained; all styling is in its CSS module. It currently sits in normal document flow below the game, so it cannot cover the board or an encounter. Assets/Scenery can move that one mount into its future toolbar/footer, keeping it above route or encounter boundaries so track position survives game changes. Remove the layout mount if moving it.
 - Do not start music from game mount, a mine click, a saved preference, scene transitions, or an effect. Only the player's explicit Play button starts/resumes audio. Enter/Space on that button is also a gesture. New visits always begin silent.
 - Volume and mute are independent of playback and persisted under `minebreak:music:v1`; blocked or corrupt storage falls back safely. A pressed “Mute music” toggle means mute is on. The native range input has a spoken percentage and keyboard support. Buttons have visible focus and 44px minimum targets.

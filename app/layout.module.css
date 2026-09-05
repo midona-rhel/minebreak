@@ -1,0 +1,5 @@
+/* The game can fill the viewport; its following music controls must remain
+   reachable by wheel, touch and keyboard. Scoped class beats body overflow. */
+.page {
+  overflow-y: auto;
+}
