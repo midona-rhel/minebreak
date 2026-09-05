@@ -1,0 +1,17 @@
+.page { min-height: 100svh; display: grid; place-items: center; padding: 24px; background: #fff0c8; color: #281712; font-family: Arial, Helvetica, sans-serif; }
+.card { width: min(520px, 100%); padding: clamp(20px, 5vw, 36px); border: 3px solid #281712; border-radius: 18px; background: #fff8df; box-shadow: 6px 6px 0 #a51d20; text-align: center; }
+.brand { color: #a51d20; font-size: 1rem; font-weight: 800; }
+.card h1 { font-size: clamp(2rem, 7vw, 3.5rem); line-height: 1.05; margin: 16px 0; }
+.card p { line-height: 1.5; }
+.card button { cursor: pointer; padding: 14px 24px; min-height: 48px; margin: 12px 0; border: 2px solid #281712; border-radius: 10px; background: #a51d20; color: #fff8df; font-size: 1.1rem; font-weight: 800; box-shadow: 3px 3px 0 #281712; }
+.card a { display: inline-block; padding: 12px; color: #a51d20; font-weight: 700; text-decoration: underline; }
+.card button:focus-visible, .card a:focus-visible { outline: 4px solid #215df0; outline-offset: 4px; }
+.note { font-size: .875rem; }
+.receipt { margin: 22px 0 12px; padding: 18px clamp(12px, 3vw, 22px); border-block: 2px dashed #6e4b32; background: #fffdf3; text-align: left; }
+.receipt h2 { margin: 0; font-size: 1.05rem; text-align: center; letter-spacing: .04em; }
+.stamp { margin: 6px 0 18px; color: #a51d20; font-size: .875rem; font-weight: 800; text-align: center; }
+.receipt dl { margin: 0; }
+.receipt dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 0; font-size: 1rem; }
+.receipt dd { margin: 0; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.receipt .total { margin-top: 10px; padding-top: 14px; border-top: 2px solid #281712; font-size: 1.25rem; font-weight: 900; }
+.management { margin: 18px 0 0; font-size: .875rem; text-align: center; font-weight: 700; }

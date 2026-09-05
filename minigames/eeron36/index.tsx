@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import Image from 'next/image';
-import type { MinigameProps } from '../contract';
+import type { EncounterResult, MinigameProps } from '../contract';
 import { awardRunXP, resolveEncounterStats } from '../../lib/player-stats';
-import { advanceShift, characterGeometry, createShift, FOODS_TO_FULL_SIZE, HEIGHT, HORIZON_Y, ITEM_SIZE, projectDrop, stopShiftMotion, shiftEarnings, SHIFT_SECONDS, TARGET_SCORE, WIDTH, type ItemKind } from './engine';
+import { advanceShift, characterGeometry, createShift, createShiftReceipt, FOODS_TO_FULL_SIZE, HEIGHT, HORIZON_Y, ITEM_SIZE, projectDrop, stopShiftMotion, shiftEarnings, SHIFT_SECONDS, TARGET_SCORE, WIDTH, type ItemKind, type ShiftReceipt } from './engine';
 import './wackdonalds.css';
 
 const art: Record<ItemKind, { label: string; column: number; row: number }> = {
@@ -35,7 +35,7 @@ function CharacterPose({ from, to, blend }: { from: number; to: number; blend: n
   </span>;
 }
 
-export default function Wackdonalds({ context, complete }: MinigameProps) {
+export default function Wackdonalds({ context, complete, onReceipt }: MinigameProps & { onReceipt?: (receipt: ShiftReceipt) => void }) {
   const [shift, setShift] = useState(() => createShift(context.seed));
   const current = useRef(shift);
   const [started, setStarted] = useState(false);
@@ -44,6 +44,8 @@ export default function Wackdonalds({ context, complete }: MinigameProps) {
   const inputs = useRef(new Set<string>());
   const reported = useRef(false);
   const completeRef = useRef(complete);
+  const receiptRef = useRef(onReceipt);
+  useEffect(() => { receiptRef.current = onReceipt; }, [onReceipt]);
   useEffect(() => { completeRef.current = complete; }, [complete]);
 
   const stopMotion = useCallback(() => {
@@ -89,10 +91,15 @@ export default function Wackdonalds({ context, complete }: MinigameProps) {
         reported.current = true;
         inputs.current.clear();
         // Settle immediately so cancelling cannot erase a bomb loss.
-        completeRef.current({
+        const result: EncounterResult = {
           outcome: next.outcome,
           playerStats: { xp: awardRunXP(context.player.xp, shiftEarnings(next, context.floor)) },
-        });
+        };
+        const finalStats = resolveEncounterStats(context.player, result, 35 + context.floor * 5);
+        const receipt = createShiftReceipt(next, finalStats.xp - context.player.xp, context.player.health - finalStats.health);
+        completeRef.current(result);
+        // Presentation follows settlement: a receipt cannot postpone or erase a loss.
+        if (receipt) receiptRef.current?.(receipt);
         return;
       }
       frame = requestAnimationFrame(tick);

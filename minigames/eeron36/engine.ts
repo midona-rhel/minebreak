@@ -10,9 +10,9 @@ export const BRAKING = 10000;
 export const REVERSAL = 9000;
 export const CATCH_Y = 352;
 export const MIN_SIZE = 160;
-export const MAX_SIZE = 240;
-export const FOODS_TO_FULL_SIZE = 12;
-export const GROWTH_SPEED = 24;
+export const MAX_SIZE = 280;
+export const FOODS_TO_FULL_SIZE = 8;
+export const GROWTH_SPEED = 72;
 export const ITEM_SIZE = 64;
 export const ITEM_RADIUS = 32;
 export const THROW_MIN = 140;
@@ -176,4 +176,28 @@ export function shiftEarnings(state: Pick<Shift, 'score' | 'outcome'>, floor: nu
   if (state.outcome !== 'success') return 0;
   const extraFood = Math.max(0, state.score - TARGET_SCORE);
   return 35 + floor * 5 + Math.min(20, Math.floor(extraFood / 2));
+}
+
+export type ShiftReceipt = Readonly<{
+  outcome: 'success' | 'failure';
+  score: number;
+  meals: number;
+  strikes: number;
+  xp: number;
+  healthLost: number;
+  seconds: number;
+}>;
+
+/** A detached receipt of a finished shift, using the actual capped host payout. */
+export function createShiftReceipt(state: Shift, xp: number, healthLost: number): ShiftReceipt | null {
+  if (!state.outcome) return null;
+  return Object.freeze({
+    outcome: state.outcome,
+    score: state.score,
+    meals: state.meals,
+    strikes: state.strikes,
+    xp,
+    healthLost,
+    seconds: Math.min(SHIFT_SECONDS, Math.ceil(state.elapsed)),
+  });
 }
