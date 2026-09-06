@@ -24,6 +24,8 @@ const FORMAT_COPY: Record<BattleFormat, { name: string; eyebrow: string; copy: s
 interface HudState {
   spin: number;
   maxSpin: number;
+  playerAlive: boolean;
+  regenRate: number;
   weapons: (Weapon | null)[];
   kills: number;
   targetKills: number;
@@ -41,8 +43,10 @@ function readHud(state: BattleState): HudState {
     ? null
     : Math.max(0, state.survivalDuration - (state.time - state.survivalStarted));
   return {
-    spin: player?.spin ?? 0,
+    spin: player?.alive && player.spin > 0 ? Math.max(0.5, player.spin) : 0,
     maxSpin: player?.maxSpin ?? 1,
+    playerAlive: player?.alive ?? false,
+    regenRate: Math.max(0, player?.regenRate ?? 0),
     weapons: player?.weapons.slice(0, LOADOUT_SIZE) ?? emptySlots(),
     kills: state.kills,
     targetKills: state.targetKills,
@@ -137,7 +141,8 @@ export default function DrillAntsBattle({ context, complete }: MinigameProps) {
     let last = performance.now();
     let accumulator = 0;
     let lastHud = 0;
-    let ended = false;
+    let outcomeVisualElapsed = 0;
+    let outcomeSeen = false;
 
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
@@ -160,20 +165,23 @@ export default function DrillAntsBattle({ context, complete }: MinigameProps) {
 
     const tick = (now: number) => {
       if (!document.hidden) {
-        accumulator += Math.min(0.1, Math.max(0, (now - last) / 1000));
+        const frameDelta = Math.min(0.1, Math.max(0, (now - last) / 1000));
+        accumulator += frameDelta;
         let steps = 0;
         while (accumulator >= FIXED_STEP && steps < 12 && !state.outcome) {
           stepBattle(state, targetRef.current, FIXED_STEP);
           accumulator -= FIXED_STEP;
           steps += 1;
         }
-        renderArena(ctx, state, targetRef.current, width, height);
-        if (now - lastHud > 80 || state.outcome) {
+        if (state.outcome) outcomeVisualElapsed += frameDelta;
+        const visualTime = state.time + outcomeVisualElapsed;
+        renderArena(ctx, state, targetRef.current, width, height, visualTime);
+        if (now - lastHud > 80 || (state.outcome && !outcomeSeen)) {
           setHud(readHud(state));
           lastHud = now;
         }
-        if (state.outcome && !ended) {
-          ended = true;
+        if (state.outcome) outcomeSeen = true;
+        if (state.outcome && outcomeVisualElapsed >= 0.85) {
           setPhase('result');
           return;
         }
@@ -191,6 +199,7 @@ export default function DrillAntsBattle({ context, complete }: MinigameProps) {
 
   const outcome = hud?.outcome;
   const spinPercent = Math.max(0, Math.min(100, ((hud?.spin ?? 0) / Math.max(hud?.maxSpin ?? 1, 1)) * 100));
+  const lowRp = Boolean(hud?.playerAlive && spinPercent <= 25);
   const objective = format === 'boss'
     ? `Royal spin ${Math.ceil(hud?.bossSpin ?? 0)}`
     : hud?.survivalRemaining !== null && hud?.survivalRemaining !== undefined
@@ -208,7 +217,7 @@ export default function DrillAntsBattle({ context, complete }: MinigameProps) {
           <header className={styles.intro}>
             <span className={styles.kicker}>THE AMBER COLISEUM</span>
             <h2 id="drillants-title">Choose your trial</h2>
-            <p>Your ant spins clockwise. Spiral counterclockwise toward the center to rebuild spin. Higher spin lets you take a flatter spiral.</p>
+            <p>Higher RP gives your ant more speed and tighter control. Spiral counterclockwise toward the center to rebuild it.</p>
           </header>
 
           <div className={styles.formatGrid} aria-label="Battle format">
@@ -249,8 +258,8 @@ export default function DrillAntsBattle({ context, complete }: MinigameProps) {
       ) : (
         <section className={styles.battle}>
           <div className={styles.topHud}>
-            <div className={styles.spinGauge} style={{ '--spin': `${spinPercent * 3.6}deg` } as CSSProperties}>
-              <span><b>{Math.ceil(hud?.spin ?? 0)}</b><small>SPIN</small></span>
+            <div className={lowRp ? styles.spinGaugeLow : styles.spinGauge} style={{ '--spin': `${spinPercent * 3.6}deg` } as CSSProperties}>
+              <span><b>{Math.ceil(hud?.spin ?? 0)}</b><small>RP</small></span>
             </div>
             <div className={styles.objective}>
               <small>{FORMAT_COPY[format].name}</small>
@@ -272,6 +281,9 @@ export default function DrillAntsBattle({ context, complete }: MinigameProps) {
             {hud?.telegraph && <output className={styles.warning}>ROYAL DASH — CLEAR THE LINE</output>}
             {hud?.weapons.every((weapon) => weapon === null) && !outcome && (
               <output className={styles.unarmed}>UNARMED — NEXT HIT DEFEATS YOU</output>
+            )}
+            {lowRp && !outcome && (
+              <output className={styles.lowRp}>LOW RP — CONTROL FADING · SPIRAL INWARD</output>
             )}
             <div className={styles.steering} aria-label="Steering controls">
               <button type="button" aria-label="Steer up" onPointerDown={() => nudgeTarget(targetRef, 0, -0.16)}>↑</button>
@@ -300,7 +312,7 @@ export default function DrillAntsBattle({ context, complete }: MinigameProps) {
                 </div>
               ))}
             </div>
-            <p><b>STEER</b> pointer / touch / WASD <i /> <b>RECOVER</b> spiral counterclockwise inward <i /> <b>LOOT</b> pass over drops</p>
+            <p><b>STEER</b> pointer / touch / WASD <i /> <b>RP {hud?.regenRate ? `+${hud.regenRate.toFixed(1)}` : ''}</b> spiral counterclockwise inward <i /> <b>LOOT</b> pass over drops</p>
           </div>
           <div className={styles.srStatus} aria-live="assertive">
             {hud?.telegraph ? 'Boss dash warning.' : outcome ? `Battle ${outcome}.` : ''}

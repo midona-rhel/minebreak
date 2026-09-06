@@ -106,8 +106,10 @@ void test('movement favors the recovery spiral, mirrors spin direction, and scal
     near(best, travel(spin, -1, { x: ideal.x, y: -ideal.y }));
   }
   assert.ok(travel(90, 1, { x: 0, y: -1 }) > travel(15, 1, { x: 0, y: -1 }));
-  assert.ok(travel(90, 1, { x: 0, y: 1 }) < travel(15, 1, { x: 0, y: 1 }));
-  near(travel(90, 1, { x: -1, y: 0 }), travel(15, 1, { x: -1, y: 0 }));
+  for (const heading of [{ x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }]) {
+    assert.ok(travel(90, 1, heading) > travel(15, 1, heading) * 2,
+      'high RP must improve speed in every direction, including against the flow');
+  }
 });
 
 void test('spin regenerates only on favorable travel after hit-free delay', () => {
@@ -333,4 +335,146 @@ void test('substeps produce the same result as individual fixed steps', () => {
   near(a.player.pos.x, b.player.pos.x);
   near(a.player.pos.y, b.player.pos.y);
   near(a.state.time, b.state.time);
+});
+
+void test('low RP weakens control and adds reproducible wobble independent of combat randomness', () => {
+  function control(spin: number) {
+    const { state, player } = fixture();
+    player.spin = spin;
+    player.vel = { x: 0.3, y: 0 };
+    stepBattle(state, { ...player.pos }, CONFIG.maximumStep);
+    return player.vel.x;
+  }
+  assert.ok(control(10) > control(100), 'low RP must respond more slowly to a stop command');
+  function wobble(seed: number, spin: number) {
+    const { state, player } = fixture();
+    state.seed = seed;
+    state.time = 1;
+    player.spin = spin;
+    stepBattle(state, { x: 1, y: 0 }, CONFIG.maximumStep);
+    return Math.atan2(player.vel.y, player.vel.x);
+  }
+  const low = wobble(123, 10);
+  assert.ok(Math.abs(low) > 0.05, 'low RP must visibly drift off the commanded heading');
+  assert.ok(Math.abs(wobble(123, 100)) < 0.000001);
+  assert.equal(low, wobble(123, 10));
+  assert.equal(low, wobble(2147483648, 10));
+});
+
+void test('effectively zero RP snaps to death before favorable movement can regenerate', () => {
+  for (const spin of [0, 0.1, CONFIG.minimumViableSpin]) {
+    const { state, player } = fixture();
+    player.pos = { x: 0.4, y: 0 };
+    player.spin = spin;
+    player.vel = { x: -0.2, y: -0.2 };
+    player.regenRate = 7;
+    stepBattle(state, { x: 0, y: -0.5 }, EPSILON);
+    assert.equal(player.spin, 0);
+    assert.equal(player.regenRate, 0);
+    assert.equal(player.alive, false);
+    assert.equal(state.outcome, 'failure');
+    assert.ok(state.effects?.some(effect => effect.kind === 'splat' && effect.player));
+  }
+  const { state, player, enemy } = fixture();
+  player.spin = 0.6;
+  enemy.spin = 1;
+  player.weapons = Array(6).fill('shield');
+  enemy.weapons = Array(6).fill('shield');
+  enemy.pos = { x: 0.05, y: 0 };
+  stepBattle(state, { ...player.pos }, EPSILON);
+  assert.equal(player.alive, false, 'a hit leaving fractional near-zero RP must kill immediately');
+  assert.equal(player.spin, 0);
+});
+
+void test('hits cancel closing motion, separate both ants, and preserve the push during recovery', () => {
+  const { state, player, enemy } = fixture();
+  enemy.pos = { x: 0.05, y: 0 };
+  player.vel = { x: 1, y: 0 };
+  enemy.vel = { x: -1, y: 0 };
+  player.weapons = Array(6).fill('shield');
+  enemy.weapons = Array(6).fill('shield');
+  stepBattle(state, { x: 1, y: 0 }, EPSILON);
+  assert.ok(player.vel.x < -CONFIG.collisionImpulse);
+  assert.ok(enemy.vel.x > CONFIG.collisionImpulse);
+  assert.ok((player.knockbackUntil ?? 0) > state.time);
+  assert.ok((enemy.knockbackUntil ?? 0) > state.time);
+  const separation = enemy.pos.x - player.pos.x;
+  const playerPush = player.vel.x;
+  const enemyPush = enemy.vel.x;
+  stepBattle(state, { x: 1, y: 0 }, CONFIG.maximumStep);
+  assert.ok(enemy.pos.x - player.pos.x > separation);
+  near(player.vel.x, playerPush);
+  near(enemy.vel.x, enemyPush);
+  assert.equal(player.regenRate, 0);
+});
+
+void test('collision deaths emit directional splats and contact impacts', () => {
+  const { state, player, enemy } = fixture();
+  enemy.weapons.fill(null);
+  enemy.pos = { x: 0.05, y: 0 };
+  stepBattle(state, { ...player.pos }, EPSILON);
+  const splats = state.effects!.filter(item => item.kind === 'splat');
+  assert.equal(splats.length, CONFIG.splatParticles);
+  assert.ok(splats.every(item => !item.player && item.vel.x > 0));
+  assert.ok(state.effects!.some(item => item.kind === 'impact'));
+  assert.ok(state.effects!.every(item => item.id < 0));
+});
+
+void test('dust is sparse and bounded and cosmetic events do not consume gameplay IDs or RNG', () => {
+  const { state, player } = fixture();
+  const seed = state.seed;
+  const nextId = state.nextId;
+  player.vel = { x: 0.3, y: 0 };
+  stepBattle(state, { x: 0.6, y: 0 }, 0.25);
+  const dust = state.effects!.filter(item => item.kind === 'dust');
+  assert.ok(dust.length >= 1 && dust.length <= 3);
+  assert.equal(state.seed, seed);
+  assert.equal(state.nextId, nextId);
+  assert.ok(new Set(state.effects!.map(item => item.id)).size === state.effects!.length);
+  const bornAt = state.time;
+  state.effects = Array.from({ length: CONFIG.maximumEffects }, (_, i) => ({
+    id: -i - 1, kind: 'dust', pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 },
+    bornAt, duration: 0.01, player: true, size: 0.01,
+  }));
+  stepBattle(state, { x: 0.6, y: 0 }, 0.1);
+  assert.ok(state.effects!.length <= CONFIG.maximumEffects);
+  assert.ok(state.effects!.every(item => item.bornAt + item.duration > state.time));
+});
+
+void test('drops expire after ten seconds and expired drops cannot fill an empty slot', () => {
+  const { state, player } = fixture();
+  player.weapons[0] = null;
+  state.drops.push({ id: 1000, pos: { ...player.pos }, weapon: 'axe', availableAt: 0, expiresAt: 0.01 });
+  state.time = 0.01;
+  stepBattle(state, { ...player.pos }, EPSILON);
+  assert.equal(player.weapons[0], null);
+  assert.equal(state.drops.length, 0);
+  const death = fixture();
+  death.enemy.spin = 0;
+  stepBattle(death.state, { ...death.player.pos }, EPSILON);
+  assert.ok(death.state.drops.length > 0);
+  for (const drop of death.state.drops) near(drop.expiresAt!, death.state.time + CONFIG.dropLifetime);
+});
+
+void test('regenRate reports actual recovery, clears without recovery, and respects the RP cap', () => {
+  const { state, player } = fixture();
+  player.pos = { x: 0.4, y: 0 };
+  player.spin = 50;
+  const heading = recoveryHeading(player);
+  player.vel = { x: heading.x * 0.3, y: heading.y * 0.3 };
+  const before = player.spin;
+  stepBattle(state, { x: player.pos.x + heading.x, y: player.pos.y + heading.y }, CONFIG.maximumStep);
+  const recovered = player.spin - before + CONFIG.playerSpinDrain * CONFIG.maximumStep;
+  near(player.regenRate!, recovered / CONFIG.maximumStep);
+  assert.ok(player.regenRate! > 0);
+  player.lastHit = state.time;
+  stepBattle(state, { x: 0, y: -1 }, CONFIG.maximumStep);
+  assert.equal(player.regenRate, 0);
+  player.lastHit = -Infinity;
+  player.spin = player.maxSpin;
+  const atCap = recoveryHeading(player);
+  player.vel = { x: atCap.x * 0.3, y: atCap.y * 0.3 };
+  stepBattle(state, { x: player.pos.x + atCap.x, y: player.pos.y + atCap.y }, CONFIG.maximumStep);
+  assert.equal(player.spin, player.maxSpin);
+  near(player.regenRate!, CONFIG.playerSpinDrain);
 });

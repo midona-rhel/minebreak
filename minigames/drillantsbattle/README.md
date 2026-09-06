@@ -6,6 +6,13 @@ reports one success/failure result; cancelling remains the host's responsibility
 
 ## Tuning
 
+Enemies primarily loop around the arena and make staggered attack adjustments.
+RP strongly scales travel speed and steering response; low RP adds deterministic
+wobble. Contact produces knockback with a short steering recovery window.
+Dropped weapons expire after 10 seconds. RP at or below 0.5 exhausts an ant and
+snaps to zero before regeneration. Deaths emit splats, moving ants emit bounded
+dust particles, and wind visualizes RP and the actual recovery rate.
+
 `simulation.ts` exports `CONFIG` for motion, directional slope effects, spin,
 collision damage, weapon-loss rolls, pickup delay and objectives.
 `opponents.ts` exports `OPPONENT_CONFIG` for enemy spin, arrivals, population,

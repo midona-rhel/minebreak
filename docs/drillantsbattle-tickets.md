@@ -75,3 +75,23 @@ agent's completion claim.
 - Local page responds HTTP 200. Browser smoke checks confirmed board interaction,
   encounter setup, battle launch and cancellation back to the board. Full gameplay
   balance and every format's browser completion path remain for further playtesting.
+
+## Playtest feedback follow-up
+
+- DB-05 (Astra, combat): stronger RP speed/control scaling, deterministic low-RP
+  wobble, reliable zero-RP defeat, collision knockback, expiring loot, dust and
+  directional impact/splat events. Status: reviewed and accepted.
+- DB-06 (Astra, opponents): default looping routes with staggered attack windows,
+  RP-scaled speed/control and knockback preservation. Status: reviewed and accepted.
+- DB-07 (Sol, arena): larger circular weapon layout, RP wind and inward recovery
+  wind, dust/impact/splat visuals, final defeat animation. Status: reviewed and accepted.
+- Main agent reviews integration, regression tests, presentation and resource
+  bounds before accepting these tickets. Loot expiry starts at 10 seconds as a
+  tunable playtest default.
+
+Follow-up review completed 2026-09-06: enlarged normal/boss collision footprints
+alongside circular weapon sprites, added splats for exhaustion as well as hits,
+and decoupled low-RP wobble from the mutable combat random stream. All 38 minigame
+and 17 harness tests pass; TypeScript, scoped lint and production build pass.
+Browser smoke check confirmed battle startup, circular weapons and wind rendering,
+live RP HUD updates, and returning to the board. Full balance testing remains.

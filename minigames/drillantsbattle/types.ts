@@ -6,12 +6,19 @@ export interface Ant {
   angle: number; spinDirection: 1 | -1; spin: number; maxSpin: number; weapons: (Weapon | null)[];
   radius: number; lastHit: number; alive: boolean; dashUntil: number;
   nextDash: number; telegraphUntil: number; dashTarget: Vec;
+  regenRate?: number;
+  knockbackUntil?: number;
 }
-export interface Drop { id: number; pos: Vec; weapon: Weapon; availableAt: number }
+export interface Drop { id: number; pos: Vec; weapon: Weapon; availableAt: number; expiresAt?: number }
+export interface BattleEffect {
+  id: number; kind: 'dust' | 'splat' | 'impact'; pos: Vec; vel: Vec;
+  bornAt: number; duration: number; player: boolean; size: number;
+}
 export interface BattleState {
   time: number; ants: Ant[]; drops: Drop[]; kills: number; spawned: number;
   nextSpawn: number; survivalStarted: number | null;
   outcome: 'success' | 'failure' | null; format: BattleFormat;
   targetKills: number; survivalDuration: number; seed: number; nextId: number;
   contacts: Record<string, number>;
+  effects?: BattleEffect[];
 }

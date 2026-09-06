@@ -3,12 +3,23 @@ import type { Ant, BattleState, Vec, Weapon } from './types';
 export const OPPONENT_CONFIG = {
   enemySpinMin: 45,
   enemySpinMax: 65,
-  enemySpeed: 0.26,
-  enemyRadius: 0.045,
+  enemySpeed: 0.4,
+  enemyRadius: 0.065,
   bossSpin: 135,
-  bossSpeed: 0.22,
-  bossRadius: 0.065,
+  bossSpeed: 0.34,
+  bossRadius: 0.085,
   steeringResponse: 2.4,
+  spinReference: 100,
+  minimumSpinFactor: 0.22,
+  maximumSpeedRatio: 1.5,
+  wobbleAngle: 0.42,
+  orbitRadius: 0.58,
+  orbitRadiusVariation: 0.06,
+  orbitCorrection: 2.4,
+  attackCycle: 5.6,
+  attackDuration: 1.1,
+  attackPhaseOffset: 1.37,
+  attackOrbitWeight: 0.15,
   separationDistance: 0.16,
   separationStrength: 1.8,
   spawnInterval: 3.6,
@@ -32,6 +43,17 @@ function random(state: BattleState): number {
 function unit(x: number, y: number): Vec {
   const distance = Math.hypot(x, y);
   return distance > 0.00001 ? { x: x / distance, y: y / distance } : { x: 0, y: 0 };
+}
+
+function spinFactors(ant: Ant): { speed: number; control: number; ratio: number } {
+  // Absolute RP makes an intact 55 RP enemy slower than one carrying 100 RP.
+  const ratio = Math.max(0, ant.spin) / OPPONENT_CONFIG.spinReference;
+  const base = OPPONENT_CONFIG.minimumSpinFactor;
+  return {
+    speed: base + (1 - base) * Math.min(OPPONENT_CONFIG.maximumSpeedRatio, ratio),
+    control: base + (1 - base) * Math.min(1, ratio),
+    ratio: Math.min(1, ratio),
+  };
 }
 
 /** Create one arrival. The simulation remains responsible for movement and deaths. */
@@ -82,10 +104,11 @@ export function spawnEnemy(state: BattleState): void {
 }
 
 function bossVelocity(ant: Ant, player: Ant, state: BattleState, dt: number): boolean {
+  const dashSpeed = OPPONENT_CONFIG.bossDashSpeed * spinFactors(ant).speed;
   if (ant.dashUntil > state.time) {
     const direction = unit(ant.dashTarget.x - ant.pos.x, ant.dashTarget.y - ant.pos.y);
     // dashTarget is a distant point on the original attack ray, never a moving player.
-    ant.vel = { x: direction.x * OPPONENT_CONFIG.bossDashSpeed, y: direction.y * OPPONENT_CONFIG.bossDashSpeed };
+    ant.vel = { x: direction.x * dashSpeed, y: direction.y * dashSpeed };
     return true;
   }
   if (ant.telegraphUntil > 0) {
@@ -95,7 +118,7 @@ function bossVelocity(ant: Ant, player: Ant, state: BattleState, dt: number): bo
       ant.telegraphUntil = 0;
       ant.dashUntil = state.time + OPPONENT_CONFIG.bossDashDuration;
       ant.nextDash = ant.dashUntil + OPPONENT_CONFIG.bossDashCooldown;
-      ant.vel = { x: direction.x * OPPONENT_CONFIG.bossDashSpeed, y: direction.y * OPPONENT_CONFIG.bossDashSpeed };
+      ant.vel = { x: direction.x * dashSpeed, y: direction.y * dashSpeed };
     } else {
       const friction = Math.exp(-12 * dt);
       ant.vel.x *= friction;
@@ -120,13 +143,31 @@ export function updateOpponents(state: BattleState, dt: number): void {
   if (state.outcome || !player?.alive || player.spin <= 0 || !Number.isFinite(dt) || dt <= 0) return;
   if (state.time >= state.nextSpawn) spawnEnemy(state);
   const enemies = state.ants.filter((ant) => !ant.player && ant.alive);
-  const blend = 1 - Math.exp(-OPPONENT_CONFIG.steeringResponse * dt);
-
   for (const ant of enemies) {
+    // Collision impulses remain authoritative throughout the knockback window.
+    if ((ant.knockbackUntil ?? 0) > state.time) continue;
     if (ant.boss && bossVelocity(ant, player, state, dt)) continue;
-    const pursuit = unit(player.pos.x - ant.pos.x, player.pos.y - ant.pos.y);
-    let steerX = pursuit.x;
-    let steerY = pursuit.y;
+    const factors = spinFactors(ant);
+    const blend = 1 - Math.exp(-OPPONENT_CONFIG.steeringResponse * factors.control * dt);
+    const radialDistance = Math.hypot(ant.pos.x, ant.pos.y);
+    const radial = radialDistance > 0.00001 ? unit(ant.pos.x, ant.pos.y)
+      : { x: Math.cos(ant.id * 2.399), y: Math.sin(ant.id * 2.399) };
+    const orbitRadius = OPPONENT_CONFIG.orbitRadius + ((ant.id % 3) - 1) * OPPONENT_CONFIG.orbitRadiusVariation;
+    const correction = (orbitRadius - radialDistance) * OPPONENT_CONFIG.orbitCorrection;
+    const orbit = {
+      x: radial.y * ant.spinDirection + radial.x * correction,
+      y: -radial.x * ant.spinDirection + radial.y * correction,
+    };
+    let steerX = orbit.x;
+    let steerY = orbit.y;
+    // Most of each cycle is a loop; each ant briefly adjusts toward the player
+    // on its own deterministic schedule rather than pursuing every frame.
+    const phase = (state.time + ant.id * OPPONENT_CONFIG.attackPhaseOffset) % OPPONENT_CONFIG.attackCycle;
+    if (phase >= OPPONENT_CONFIG.attackCycle - OPPONENT_CONFIG.attackDuration) {
+      const pursuit = unit(player.pos.x - ant.pos.x, player.pos.y - ant.pos.y);
+      steerX = pursuit.x + orbit.x * OPPONENT_CONFIG.attackOrbitWeight;
+      steerY = pursuit.y + orbit.y * OPPONENT_CONFIG.attackOrbitWeight;
+    }
     for (const other of enemies) {
       if (other.id === ant.id) continue;
       const dx = ant.pos.x - other.pos.x;
@@ -138,7 +179,6 @@ export function updateOpponents(state: BattleState, dt: number): void {
       steerX += away.x * pressure;
       steerY += away.y * pressure;
     }
-    const radialDistance = Math.hypot(ant.pos.x, ant.pos.y);
     if (radialDistance > 0.85) {
       const inward = unit(-ant.pos.x, -ant.pos.y);
       const pressure = (radialDistance - 0.85) * 8;
@@ -146,9 +186,13 @@ export function updateOpponents(state: BattleState, dt: number): void {
       steerY += inward.y * pressure;
     }
     const heading = unit(steerX, steerY);
-    const speed = ant.boss ? OPPONENT_CONFIG.bossSpeed : OPPONENT_CONFIG.enemySpeed;
-    ant.vel.x += (heading.x * speed - ant.vel.x) * blend;
-    ant.vel.y += (heading.y * speed - ant.vel.y) * blend;
+    const wobble = Math.sin(state.time * 6.3 + ant.id * 2.399) *
+      OPPONENT_CONFIG.wobbleAngle * (1 - factors.ratio) ** 2;
+    const cos = Math.cos(wobble);
+    const sin = Math.sin(wobble);
+    const speed = (ant.boss ? OPPONENT_CONFIG.bossSpeed : OPPONENT_CONFIG.enemySpeed) * factors.speed;
+    ant.vel.x += ((heading.x * cos - heading.y * sin) * speed - ant.vel.x) * blend;
+    ant.vel.y += ((heading.x * sin + heading.y * cos) * speed - ant.vel.y) * blend;
   }
 }
 

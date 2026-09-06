@@ -38,7 +38,7 @@ void test('arrivals are deterministic, timed, overlapping, and bounded', () => {
   assert.equal(state.ants.filter((ant) => !ant.player && ant.alive).length, OPPONENT_CONFIG.maxLiveEnemies);
 });
 
-void test('pursuit changes velocity, separates coincident opponents, and does not integrate positions', () => {
+void test('loop steering separates coincident opponents without integrating positions', () => {
   const state = fixture();
   spawnEnemy(state);
   spawnEnemy(state);
@@ -105,7 +105,7 @@ void test('boss telegraphs a fixed target, dashes toward it, and never gains rei
   state.time = boss.telegraphUntil;
   updateOpponents(state, 0.01);
   assert.ok(boss.dashUntil > state.time);
-  assert.ok(Math.abs(Math.hypot(boss.vel.x, boss.vel.y) - OPPONENT_CONFIG.bossDashSpeed) < 1e-10);
+  assert.ok(Math.abs(Math.hypot(boss.vel.x, boss.vel.y) - OPPONENT_CONFIG.bossDashSpeed * 1.273) < 1e-10);
   assert.ok(boss.vel.x * expected.x + boss.vel.y * expected.y > 0);
   assert.ok(Math.abs(boss.vel.x * expected.y - boss.vel.y * expected.x) < 1e-10);
   state.time += 10;
@@ -116,6 +116,108 @@ void test('boss telegraphs a fixed target, dashes toward it, and never gains rei
   assert.equal(state.spawned, 1);
   updateObjectives(state);
   assert.equal(state.outcome, 'success');
+});
+
+function orbitFixture(): BattleState {
+  const state = fixture();
+  spawnEnemy(state);
+  state.nextSpawn = Infinity;
+  state.ants[1].pos = { x: OPPONENT_CONFIG.orbitRadius, y: 0 };
+  state.ants[1].spin = 100;
+  state.ants[1].maxSpin = 100;
+  return state;
+}
+
+void test('default motion loops tangentially opposite body spin and reverses with spin direction', () => {
+  const state = orbitFixture();
+  updateOpponents(state, 0.1);
+  const ant = state.ants[1];
+  assert.ok(Math.abs(ant.vel.x) < 1e-10);
+  assert.ok(ant.vel.y < 0);
+  ant.spinDirection = -1;
+  ant.vel = { x: 0, y: 0 };
+  updateOpponents(state, 0.1);
+  assert.ok(Math.abs(ant.vel.x) < 1e-10);
+  assert.ok(ant.vel.y > 0);
+});
+
+void test('brief attack adjustments use individual phases, then return to loops', () => {
+  const state = orbitFixture();
+  state.time = 3.3;
+  updateOpponents(state, 0.1);
+  const attacking = { ...state.ants[1].vel };
+  assert.ok(attacking.x < 0);
+  assert.ok(Math.abs(attacking.x) > Math.abs(attacking.y) * 4);
+  const otherPhase = orbitFixture();
+  otherPhase.time = state.time;
+  otherPhase.ants[1].id = 2;
+  otherPhase.ants[1].pos.x += OPPONENT_CONFIG.orbitRadiusVariation;
+  updateOpponents(otherPhase, 0.1);
+  assert.ok(Math.abs(otherPhase.ants[1].vel.x) < 1e-10);
+  assert.ok(otherPhase.ants[1].vel.y < 0);
+  state.time += OPPONENT_CONFIG.attackDuration;
+  state.ants[1].vel = { x: 0, y: 0 };
+  updateOpponents(state, 0.1);
+  assert.ok(Math.abs(state.ants[1].vel.x) < 1e-10);
+  assert.ok(state.ants[1].vel.y < 0);
+});
+
+void test('absolute RP produces substantially faster movement, regardless of individual maximum', () => {
+  const high = orbitFixture();
+  const low = orbitFixture();
+  high.ants[1].maxSpin = 200;
+  low.ants[1].spin = 10;
+  low.ants[1].maxSpin = 10;
+  for (let i = 0; i < 100; i++) {
+    updateOpponents(high, 0.1);
+    updateOpponents(low, 0.1);
+  }
+  const highSpeed = Math.hypot(high.ants[1].vel.x, high.ants[1].vel.y);
+  const lowSpeed = Math.hypot(low.ants[1].vel.x, low.ants[1].vel.y);
+  assert.ok(highSpeed > lowSpeed * 3, `${highSpeed} should exceed three times ${lowSpeed}`);
+});
+
+void test('low RP responds weakly and wobbles deterministically while strong RP holds its loop', () => {
+  const high = orbitFixture();
+  const low = orbitFixture();
+  low.ants[1].spin = 10;
+  high.ants[1].vel = { x: 1, y: 0 };
+  low.ants[1].vel = { x: 1, y: 0 };
+  updateOpponents(high, 0.1);
+  updateOpponents(low, 0.1);
+  assert.ok(high.ants[1].vel.x < low.ants[1].vel.x - 0.1);
+  const headings: number[] = [];
+  for (const time of [0, 0.25]) {
+    high.time = low.time = time;
+    high.ants[1].vel = { x: 0, y: 0 };
+    low.ants[1].vel = { x: 0, y: 0 };
+    const replay = structuredClone(low);
+    updateOpponents(high, 0.1);
+    updateOpponents(low, 0.1);
+    updateOpponents(replay, 0.1);
+    assert.deepEqual(low.ants[1].vel, replay.ants[1].vel);
+    assert.ok(Math.abs(high.ants[1].vel.x) < 1e-10);
+    headings.push(Math.atan2(low.ants[1].vel.y, low.ants[1].vel.x));
+  }
+  assert.ok(Math.abs(headings[1] - headings[0]) > 0.2);
+});
+
+void test('knockback preserves collision velocity for ordinary steering and an active boss dash', () => {
+  for (const format of ['elimination', 'boss'] as const) {
+    const state = fixture(format);
+    spawnEnemy(state);
+    const ant = state.ants[1];
+    ant.vel = { x: 0.7, y: -0.4 };
+    ant.knockbackUntil = 1;
+    ant.dashUntil = 2;
+    ant.dashTarget = { x: 4, y: 4 };
+    const impulse = { ...ant.vel };
+    updateOpponents(state, 0.1);
+    assert.deepEqual(ant.vel, impulse);
+    state.time = 1;
+    updateOpponents(state, 0.1);
+    assert.notDeepEqual(ant.vel, impulse);
+  }
 });
 
 void test('player defeat takes precedence over every objective and failure remains final', () => {

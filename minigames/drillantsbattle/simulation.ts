@@ -1,14 +1,21 @@
-import type { Ant, BattleFormat, BattleState, Vec, Weapon } from './types';
+import type { Ant, BattleEffect, BattleFormat, BattleState, Vec, Weapon } from './types';
 import { spawnEnemy, updateObjectives, updateOpponents } from './opponents';
 
 /** Arena units are normalized: the rim is radius 1 and time is seconds. */
 export const CONFIG = {
   slots: 6,
   arenaRadius: 1,
-  playerRadius: 0.045,
+  playerRadius: 0.065,
   playerSpin: 100,
   playerSpeed: 0.46,
   movementResponse: 4.2,
+  spinSpeedReference: 100,
+  minimumSpinSpeedFactor: 0.22,
+  maximumSpinSpeedRatio: 1.5,
+  minimumSpinControlFactor: 0.22,
+  lowSpinWobbleAngle: 0.42,
+  wobbleFrequency: 7,
+  minimumViableSpin: 0.5,
   arrivalDistance: 0.13,
   movementFlowStrength: 0.22,
   minimumMovementFactor: 0.35,
@@ -16,6 +23,7 @@ export const CONFIG = {
   regenerationRate: 7,
   regenerationMinimumSpeed: 0.035,
   regenerationAlignment: 0.35,
+  regenerationMinimumComponent: 0.04,
   recoveryInwardWeight: 0.65,
   recoveryTangentBase: 0.15,
   recoveryTangentSpinWeight: 2,
@@ -30,12 +38,24 @@ export const CONFIG = {
   weaponAdvantageMultiplier: 1.25,
   weaponDisadvantageMultiplier: 0.8,
   hitCooldown: 0.55,
-  collisionImpulse: 0.13,
+  collisionImpulse: 0.26,
+  collisionImpactImpulse: 0.18,
+  knockbackRecovery: 0.2,
+  knockbackImpactRecovery: 0.06,
   weaponLossBaseChance: 0.12,
   weaponLossDamageBias: 0.9,
   maximumWeaponLossChance: 0.8,
   dropPickupDelay: 0.55,
+  dropLifetime: 10,
   pickupDistance: 0.075,
+  maximumEffects: 140,
+  dustInterval: 0.1,
+  dustMinimumSpeed: 0.045,
+  dustDuration: 0.55,
+  dustSize: 0.013,
+  impactDuration: 0.25,
+  splatDuration: 1.1,
+  splatParticles: 7,
   maximumStep: 1 / 120,
   maximumFrameTime: 0.25,
   killQuota: 6,
@@ -71,13 +91,14 @@ export function createBattle(
     weapons: Array.from({ length: CONFIG.slots }, (_, i) => loadout[i] ?? null),
     radius: CONFIG.playerRadius, lastHit: -Infinity, alive: true,
     dashUntil: 0, nextDash: 0, telegraphUntil: 0, dashTarget: { x: 0, y: 0 },
+    regenRate: 0, knockbackUntil: 0,
   };
   const state: BattleState = {
     time: 0, ants: [player], drops: [], kills: 0, spawned: 0, nextSpawn: 0,
     survivalStarted: null, outcome: null, format,
     targetKills: format === 'boss' ? 1 : CONFIG.killQuota + difficulty * CONFIG.killsPerFloor,
     survivalDuration: CONFIG.survivalSeconds + difficulty * CONFIG.survivalSecondsPerFloor,
-    seed: seed >>> 0, nextId: 1, contacts: {},
+    seed: seed >>> 0, nextId: 1, contacts: {}, effects: [],
   };
   spawnEnemy(state);
   return state;
@@ -104,6 +125,8 @@ export function recoveryHeading(ant: Ant): Vec {
 }
 
 function movePlayer(player: Ant, target: Vec, dt: number, time: number): void {
+  player.regenRate = 0;
+  if ((player.knockbackUntil ?? 0) > time) return;
   const dx = target.x - player.pos.x;
   const dy = target.y - player.pos.y;
   const distance = Math.hypot(dx, dy);
@@ -117,11 +140,20 @@ function movePlayer(player: Ant, target: Vec, dt: number, time: number): void {
   const flow = spiralFlow(player);
   const movementFactor = Math.max(CONFIG.minimumMovementFactor,
     1 + CONFIG.movementFlowStrength * (flow.x * ux + flow.y * uy));
-  const speed = CONFIG.playerSpeed * movementFactor
+  const spinRatio = clamp(player.spin / CONFIG.spinSpeedReference, 0, CONFIG.maximumSpinSpeedRatio);
+  const controlRatio = Math.min(1, spinRatio);
+  const spinSpeed = CONFIG.minimumSpinSpeedFactor + (1 - CONFIG.minimumSpinSpeedFactor) * spinRatio;
+  const control = CONFIG.minimumSpinControlFactor + (1 - CONFIG.minimumSpinControlFactor) * controlRatio;
+  const speed = CONFIG.playerSpeed * movementFactor * spinSpeed
     * Math.min(1, distance / CONFIG.arrivalDistance);
-  const response = 1 - Math.exp(-CONFIG.movementResponse * dt);
-  player.vel.x += (ux * speed - player.vel.x) * response;
-  player.vel.y += (uy * speed - player.vel.y) * response;
+  const phase = player.id * 2.39996;
+  const wobble = CONFIG.lowSpinWobbleAngle * (1 - controlRatio) ** 2
+    * Math.sin(time * CONFIG.wobbleFrequency + phase);
+  const steerX = ux * Math.cos(wobble) - uy * Math.sin(wobble);
+  const steerY = ux * Math.sin(wobble) + uy * Math.cos(wobble);
+  const response = 1 - Math.exp(-CONFIG.movementResponse * control * dt);
+  player.vel.x += (steerX * speed - player.vel.x) * response;
+  player.vel.y += (steerY * speed - player.vel.y) * response;
 
   const actualSpeed = Math.hypot(player.vel.x, player.vel.y);
   const heading = recoveryHeading(player);
@@ -131,10 +163,13 @@ function movePlayer(player: Ant, target: Vec, dt: number, time: number): void {
   const oppositeTravel = (ry * player.vel.x - rx * player.vel.y) * player.spinDirection;
   if (time - player.lastHit >= CONFIG.regenerationDelay
     && actualSpeed >= CONFIG.regenerationMinimumSpeed
-    && inwardTravel > 0 && oppositeTravel > 0
+    && inwardTravel > actualSpeed * CONFIG.regenerationMinimumComponent
+    && oppositeTravel > actualSpeed * CONFIG.regenerationMinimumComponent
     && alignment >= CONFIG.regenerationAlignment) {
+    const before = player.spin;
     player.spin = Math.min(player.maxSpin,
-      player.spin + CONFIG.regenerationRate * alignment ** 4 * dt);
+      before + CONFIG.regenerationRate * alignment ** 4 * dt);
+    player.regenRate = (player.spin - before) / dt;
   }
 }
 
@@ -173,6 +208,7 @@ function dropWeapon(state: BattleState, ant: Ant, weapon: Weapon): void {
   state.drops.push({
     id: state.nextId++, pos: { ...ant.pos }, weapon,
     availableAt: state.time + CONFIG.dropPickupDelay,
+    expiresAt: state.time + CONFIG.dropLifetime,
   });
 }
 
@@ -180,6 +216,7 @@ function kill(state: BattleState, ant: Ant): void {
   if (!ant.alive) return;
   ant.alive = false;
   ant.spin = 0;
+  ant.regenRate = 0;
   ant.vel = { x: 0, y: 0 };
   if (!ant.player) state.kills++;
   for (const weapon of equipped(ant)) dropWeapon(state, ant, weapon);
@@ -189,7 +226,8 @@ function kill(state: BattleState, ant: Ant): void {
 function receiveHit(state: BattleState, ant: Ant, damage: number, wasUnarmed: boolean): void {
   ant.lastHit = state.time;
   ant.spin = Math.max(0, ant.spin - damage);
-  if (wasUnarmed || ant.spin <= 0) {
+  ant.regenRate = 0;
+  if (wasUnarmed || ant.spin <= CONFIG.minimumViableSpin) {
     kill(state, ant);
     return;
   }
@@ -202,6 +240,27 @@ function receiveHit(state: BattleState, ant: Ant, damage: number, wasUnarmed: bo
   dropWeapon(state, ant, ant.weapons[slot]!);
   ant.weapons[slot] = null;
   // Losing the final weapon is survivable. The next distinct hit is fatal.
+}
+
+function effect(state: BattleState, kind: BattleEffect['kind'], ant: Ant,
+  pos: Vec, vel: Vec, duration: number, size: number): void {
+  const effects = state.effects ??= [];
+  // Cosmetic events never consume gameplay IDs or the combat/spawn random stream.
+  const id = (effects[effects.length - 1]?.id ?? 0) - 1;
+  effects.push({ id, kind, player: ant.player,
+    pos: { ...pos }, vel: { ...vel }, bornAt: state.time, duration, size });
+  if (effects.length > CONFIG.maximumEffects) effects.splice(0, effects.length - CONFIG.maximumEffects);
+}
+
+function splat(state: BattleState, ant: Ant, direction: Vec, impact: number): void {
+  for (let i = 0; i < CONFIG.splatParticles; i++) {
+    const angle = (i / Math.max(1, CONFIG.splatParticles - 1) - 0.5) * 1.3;
+    const speed = (0.12 + impact * 0.11) * (0.65 + (i % 3) * 0.2);
+    effect(state, 'splat', ant, ant.pos, {
+      x: (direction.x * Math.cos(angle) - direction.y * Math.sin(angle)) * speed,
+      y: (direction.x * Math.sin(angle) + direction.y * Math.cos(angle)) * speed,
+    }, CONFIG.splatDuration, ant.radius * (0.16 + (i % 3) * 0.05));
+  }
 }
 
 function collide(state: BattleState, a: Ant, b: Ant): void {
@@ -242,13 +301,23 @@ function collide(state: BattleState, a: Ant, b: Ant): void {
     ? totalDamage * (spinA / combinedSpin) * kitAdvantage(kitA, kitB) : 0;
   receiveHit(state, a, damageA, kitA.length === 0);
   receiveHit(state, b, damageB, kitB.length === 0);
+  effect(state, 'impact', a, { x: (a.pos.x + b.pos.x) / 2, y: (a.pos.y + b.pos.y) / 2 },
+    { x: 0, y: 0 }, CONFIG.impactDuration, 0.025 + impact * 0.025);
+  if (!a.alive) splat(state, a, { x: -nx, y: -ny }, impact);
+  if (!b.alive) splat(state, b, { x: nx, y: ny }, impact);
+  const push = CONFIG.collisionImpulse + impact * CONFIG.collisionImpactImpulse;
+  const recoveryUntil = state.time + CONFIG.knockbackRecovery + impact * CONFIG.knockbackImpactRecovery;
   if (a.alive) {
-    a.vel.x -= nx * CONFIG.collisionImpulse;
-    a.vel.y -= ny * CONFIG.collisionImpulse;
+    const change = Math.min(0, -push - (a.vel.x * nx + a.vel.y * ny));
+    a.vel.x += nx * change;
+    a.vel.y += ny * change;
+    a.knockbackUntil = Math.max(a.knockbackUntil ?? 0, recoveryUntil);
   }
   if (b.alive) {
-    b.vel.x += nx * CONFIG.collisionImpulse;
-    b.vel.y += ny * CONFIG.collisionImpulse;
+    const change = Math.max(0, push - (b.vel.x * nx + b.vel.y * ny));
+    b.vel.x += nx * change;
+    b.vel.y += ny * change;
+    b.knockbackUntil = Math.max(b.knockbackUntil ?? 0, recoveryUntil);
   }
 }
 
@@ -274,16 +343,33 @@ export function stepBattle(state: BattleState, target: Vec, dt: number): void {
     const delta = Math.min(remaining, CONFIG.maximumStep);
     remaining -= delta;
     state.time += delta;
+    state.drops = state.drops.filter(drop => (drop.expiresAt ?? Infinity) > state.time);
+    state.effects = (state.effects ?? []).filter(item => item.bornAt + item.duration > state.time);
     for (const ant of state.ants) {
+      ant.regenRate = 0;
       if (!ant.alive) continue;
       ant.spin = Math.max(0, ant.spin - (ant.player ? CONFIG.playerSpinDrain : CONFIG.enemySpinDrain) * delta);
-      if (ant.spin <= 0) kill(state, ant);
+      if (ant.spin <= CONFIG.minimumViableSpin) {
+        const heading = Math.atan2(ant.vel.y, ant.vel.x);
+        kill(state, ant);
+        splat(state, ant, { x: Math.cos(heading), y: Math.sin(heading) }, 0.6);
+      }
     }
     // Resolve fatal drain now, but defer victories until this step's hits finish.
     if (!player.alive) { state.outcome = 'failure'; break; }
     movePlayer(player, safeTarget, delta, state.time);
     updateOpponents(state, delta);
     for (const ant of state.ants) if (ant.alive) integrate(ant, delta);
+    if (Math.floor(state.time / CONFIG.dustInterval) > Math.floor((state.time - delta) / CONFIG.dustInterval)) {
+      for (const ant of state.ants) {
+        if (!ant.alive || Math.hypot(ant.vel.x, ant.vel.y) < CONFIG.dustMinimumSpeed) continue;
+        const phase = ant.id * 2.39996 + state.time * 3;
+        effect(state, 'dust', ant, ant.pos, {
+          x: -ant.vel.x * 0.15 + Math.cos(phase) * 0.02,
+          y: -ant.vel.y * 0.15 + Math.sin(phase) * 0.02,
+        }, CONFIG.dustDuration, CONFIG.dustSize);
+      }
+    }
     for (let i = 0; i < state.ants.length; i++) {
       for (let j = i + 1; j < state.ants.length; j++) {
         if (state.ants[i].alive && state.ants[j].alive) collide(state, state.ants[i], state.ants[j]);

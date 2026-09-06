@@ -297,7 +297,8 @@
   border-bottom: 1px solid rgba(240, 189, 98, 0.17);
 }
 
-.root .spinGauge {
+.root .spinGauge,
+.root .spinGaugeLow {
   display: grid;
   width: 64px;
   height: 64px;
@@ -307,7 +308,14 @@
   box-shadow: 0 0 22px rgba(99, 230, 200, 0.12);
 }
 
-.root .spinGauge::before {
+.root .spinGaugeLow {
+  background: conic-gradient(var(--blood) var(--spin), rgba(111, 56, 43, 0.22) 0);
+  box-shadow: 0 0 25px rgba(255, 92, 84, 0.24);
+  animation: rpPulse 580ms ease-in-out infinite alternate;
+}
+
+.root .spinGauge::before,
+.root .spinGaugeLow::before {
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -315,7 +323,8 @@
   content: '';
 }
 
-.root .spinGauge span {
+.root .spinGauge span,
+.root .spinGaugeLow span {
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -323,13 +332,15 @@
 }
 
 .root .spinGauge b,
+.root .spinGaugeLow b,
 .root .killCount b {
   font-family: Georgia, 'Times New Roman', serif;
   font-size: 1.25rem;
   line-height: 1;
 }
 
-.root .spinGauge small {
+.root .spinGauge small,
+.root .spinGaugeLow small {
   margin-top: 3px;
   color: #7e9b8f;
   font-size: 0.44rem;
@@ -414,6 +425,22 @@
   font-size: 0.56rem;
   font-weight: 900;
   letter-spacing: 0.1em;
+  transform: translateX(-50%);
+}
+
+.root .lowRp {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  padding: 6px 11px;
+  border: 1px solid rgba(255, 172, 90, 0.6);
+  border-radius: 999px;
+  color: #ffe6c9;
+  background: rgba(74, 29, 14, 0.88);
+  box-shadow: 0 0 18px rgba(255, 103, 57, 0.18);
+  font-size: 0.53rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
   transform: translateX(-50%);
 }
 
@@ -548,6 +575,10 @@
 
 @keyframes dangerPulse {
   to { transform: translateX(-50%) scale(1.04); filter: brightness(1.25); }
+}
+
+@keyframes rpPulse {
+  to { filter: brightness(1.3); transform: scale(1.035); }
 }
 
 @media (max-width: 700px) {
